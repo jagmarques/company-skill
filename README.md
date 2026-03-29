@@ -3,45 +3,45 @@
 A Claude Code skill that turns a markdown org chart into a running multi-agent system.
 
 ```
-COMPANY.md  ──►  /company  ──►  40 agents working in parallel
+COMPANY.md  →  /company  →  waves of parallel agents  →  unified status
 ```
 
 ## The Problem
 
-You want 40 AI agents working together — researchers, engineers, critics, scouts. But launching them all in the main thread explodes your context window. Agents go stale. They repeat each other's work. Communication is chaos.
+You want 40 AI agents working together. But shared context explodes tokens, agents go stale, and communication is chaos.
 
-## The Solution
-
-**Company** uses a three-layer architecture:
+## How It Works
 
 ```
-        You (CEO)
-            │
-     ┌──────┼──────┬──────────┐
-     ▼      ▼      ▼          ▼
-  Research  Eng   Quality   Scouts     ← Department Leads (parallel)
-     │       │      │          │
-   ┌─┼─┐  ┌─┼─┐  ┌─┼─┐     ┌─┼─┐
-   ▼ ▼ ▼  ▼ ▼ ▼  ▼ ▼ ▼     ▼ ▼ ▼     ← Workers (on-demand)
-                    │
-              BLACKBOARD.md            ← Shared communication
+Wave 1: Department Leads (parallel)          ← 5-6 agents
+    ↓ typed messages + reports
+Wave 2: Workers for urgent priorities        ← 3-4 per lead, on-demand
+    ↓ typed messages + findings
+Wave 3: Quality review                       ← 2-3 reviewers
+    ↓ verdicts (approved / vetoed)
+Wave 4: CEO synthesis                        ← you
 ```
 
-1. **You** set priorities and read the final status
-2. **Department leads** launch in parallel, each managing their team
-3. **Workers** activate on-demand — only when a lead needs them
-4. **Blackboard** is the single communication channel between departments
+Each wave starts fresh. Agents in Wave 2 don't inherit Wave 1's context — they read only their task and previous findings. Context stays under 3000 tokens per agent.
 
-No agent reads the full conversation. Each gets only its task and the blackboard. That's how you run 40 agents without burning through your context.
+Agents communicate through **typed JSON messages**, not free text:
+
+```json
+{"type": "finding", "from": "ML Scientist", "priority": 4, "content": "E8 lattice compresses 3.7x better than scalar"}
+{"type": "blocker", "from": "Chief Critic", "priority": 5, "content": "MP threshold fails on correlated data"}
+{"type": "threat", "from": "GitHub Scout", "priority": 5, "content": "Competitor repo appeared today"}
+```
+
+Agents filter by priority >= 3. Low-priority noise never enters their context.
 
 ## Quick Start
 
-Install the skill:
 ```bash
 cp -r skill/ .claude/skills/company/
 ```
 
-Write your org chart as `COMPANY.md`:
+Write `COMPANY.md`:
+
 ```markdown
 # My Team
 
@@ -62,124 +62,74 @@ Write your org chart as `COMPANY.md`:
 - No deploy without QA Lead sign-off
 ```
 
-Run it:
+Run:
 ```
 /company
 ```
 
-All leads launch in parallel. Each lead reads the priorities, decides which workers to activate, collects their output, and writes findings to the blackboard. You get a unified status report.
+## Key Patterns
 
-## How Agents Communicate
+### Waves, Not Swarm (from oh-my-claudecode)
+Agents run in sequential waves, not all at once. Each wave's output is compressed into files that feed the next wave. Context resets between waves.
 
-Agents never talk to each other directly. That would duplicate context across every agent.
+### Typed Messages (from Overstory)
+13 message types (finding, question, result, blocker, threat, veto, etc.) with priority levels. Agents read only high-priority messages. Low-value noise gets filtered before it enters any context.
 
-Instead, every department writes to `.company/BLACKBOARD.md`:
+### Adaptive Output Budget
+Workers self-rate findings 1-5 and write proportionally:
 
-```markdown
-## FROM: Engineering
-Backend API refactored. Auth endpoint 3x faster. Ready for QA.
+| Rating | Budget |
+|--------|--------|
+| 1 Nothing new | 50 words |
+| 3 Useful finding | 400 words |
+| 5 Breakthrough | 1500 words |
 
-## FROM: Quality
-Reviewed auth changes. SQL injection vector in line 42. BLOCKED.
+No tokens wasted on low-value output.
 
-## FROM: Research
-Found paper on token-based caching. Could replace our Redis layer.
-```
+### Agent Dropout (from ACL 2025)
+Track which workers produce high-priority findings. On repeat runs, auto-skip workers that produced nothing useful. 21.6% token savings with improved quality.
 
-The CEO (you) reads the blackboard after all departments report. Department leads also read it to react to other teams' findings.
-
-Workers write detailed results to `.company/{department}/{worker}.md`. These files **persist across sessions** — next time the lead checks existing findings before spawning the same worker again.
-
-## Configuration
-
-### Departments and Roles
-
-The skill parses any markdown structure. Use `##` headers for departments, `-` list items for roles:
-
-```markdown
-## Department Name (Lead: Role Name)
-- Role Name — what they do
-- Another Role — their responsibility
-```
-
-The first role or the one marked `(Lead: ...)` becomes the department lead.
-
-### Priorities
-
-```markdown
-## Priorities
-1. [URGENT] Gets worked on immediately
-2. [IMPORTANT] Gets worked on if capacity allows
-3. [RESEARCH] Background investigation
-```
-
-Leads only spawn workers for items matching their department's expertise.
-
-### Rules
-
-```markdown
-## Rules
-- Quality department must sign off on all claims
-- No code ships without security review
-```
-
-Rules get injected into every lead's prompt. Use them for quality gates and approval workflows.
-
-### Model Override
-
-All agents use **Opus** by default. Override per role:
-
-```markdown
-- Data Entry Clerk — log processing [haiku]
-- Senior Architect — system design [sonnet]
-```
+### Context Hygiene (from agent_farm)
+Each agent gets ONLY: its task, its previous findings, relevant messages (priority >= 3), and rules. Never the full conversation. Under 3000 tokens input per agent.
 
 ## What Gets Created
 
 ```
 .company/
-├── BLACKBOARD.md          # What departments are saying to each other
-├── PRIORITIES.md          # What's being worked on this session
-├── STATUS.md              # Final synthesis after all departments report
+├── PRIORITIES.md
+├── STATUS.md
+├── messages/
+│   ├── engineering.jsonl     ← typed JSON messages
+│   ├── quality.jsonl
+│   └── research.jsonl
 ├── engineering/
-│   ├── REPORT.md          # Lead's synthesis
-│   ├── backend-dev.md     # Worker's findings (persists across sessions)
+│   ├── REPORT.md             ← lead's synthesis
+│   ├── backend-dev.md        ← worker findings (persist)
 │   └── frontend-dev.md
 └── quality/
     ├── REPORT.md
     └── security-reviewer.md
 ```
 
-Add `.company/` to your `.gitignore`.
+## Why Not X
 
-## Incremental Runs
-
-Second time you run `/company`, it reads `.company/STATUS.md` from last time. Departments with no new priorities are skipped. Workers with existing findings aren't re-spawned. Saves ~60% of tokens on repeat runs.
+| | Company | CrewAI | AutoGen | Overstory | agent_farm |
+|---|---|---|---|---|---|
+| Config | Markdown | Python | Python | YAML+SQLite | Python |
+| Max agents | 40 (in waves) | ~10 | ~10 | 25 | 50 |
+| Communication | Typed JSON | Direct msgs | Group chat | SQLite mail | Filesystem |
+| Context per agent | <3K tokens | Shared (100K+) | Shared | Isolated | Isolated |
+| Persistence | Findings + messages | None | None | SQLite | None |
+| Install | Copy 1 file | pip | pip | pip+SQLite | Clone+tmux |
 
 ## Examples
 
-See [`examples/`](examples/) for ready-to-use structures:
-
-| File | Description |
-|------|-------------|
-| `startup.md` | 10-person tech startup |
-| `research-lab.md` | Academic research group |
-| `dev-team.md` | Software development sprint |
-| `nexusquant.md` | 40-person AI research company |
-
-## Why Not CrewAI / AutoGen / MetaGPT?
-
-| | Company | CrewAI | AutoGen | MetaGPT |
-|---|---|---|---|---|
-| **Configure** | Markdown | Python | Python | JSON |
-| **Install** | Copy 1 file | pip + deps | pip + deps | pip + deps |
-| **Runs inside** | Claude Code | Own process | Own process | Own process |
-| **Communication** | File blackboard | Direct messages | Group chat | Shared memory |
-| **Context cost** | Isolated per agent | Shared (explodes) | Shared (explodes) | Shared |
-| **Findings persist** | Yes | No | No | No |
-| **Lines of config** | 20-50 | 100-500 | 200-1000 | 300+ |
-
-Those frameworks are general-purpose agent orchestrators. **Company** is a Claude Code skill — it works where you already work, with zero infrastructure.
+| File | Size |
+|------|------|
+| [`startup.md`](examples/startup.md) | 10-person startup |
+| [`research-lab.md`](examples/research-lab.md) | Academic group |
+| [`dev-team.md`](examples/dev-team.md) | Dev sprint team |
+| [`nexusquant.md`](examples/nexusquant.md) | 40-person AI company |
 
 ## License
 
