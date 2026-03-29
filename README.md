@@ -1,136 +1,185 @@
 # Company
 
-Run your AI company from a markdown file. One skill. Every role activates.
+A Claude Code skill that turns a markdown org chart into a running multi-agent system.
 
-## What It Does
+```
+COMPANY.md  ──►  /company  ──►  40 agents working in parallel
+```
 
-Write an org chart in `COMPANY.md`. Type `/company` in Claude Code. Every department lead launches in parallel, spawns their workers, and reports back through a shared blackboard. You get a unified status of what was accomplished, discovered, and what to do next.
+## The Problem
 
-## Install
+You want 40 AI agents working together — researchers, engineers, critics, scouts. But launching them all in the main thread explodes your context window. Agents go stale. They repeat each other's work. Communication is chaos.
 
+## The Solution
+
+**Company** uses a three-layer architecture:
+
+```
+        You (CEO)
+            │
+     ┌──────┼──────┬──────────┐
+     ▼      ▼      ▼          ▼
+  Research  Eng   Quality   Scouts     ← Department Leads (parallel)
+     │       │      │          │
+   ┌─┼─┐  ┌─┼─┐  ┌─┼─┐     ┌─┼─┐
+   ▼ ▼ ▼  ▼ ▼ ▼  ▼ ▼ ▼     ▼ ▼ ▼     ← Workers (on-demand)
+                    │
+              BLACKBOARD.md            ← Shared communication
+```
+
+1. **You** set priorities and read the final status
+2. **Department leads** launch in parallel, each managing their team
+3. **Workers** activate on-demand — only when a lead needs them
+4. **Blackboard** is the single communication channel between departments
+
+No agent reads the full conversation. Each gets only its task and the blackboard. That's how you run 40 agents without burning through your context.
+
+## Quick Start
+
+Install the skill:
 ```bash
 cp -r skill/ .claude/skills/company/
 ```
 
-Or:
-```bash
-curl -sL https://raw.githubusercontent.com/jagmarques/company-skill/main/install.sh | bash
-```
-
-Then:
-```
-/company
-```
-
-## Write Your Company
-
-Create `COMPANY.md` in your project root:
-
+Write your org chart as `COMPANY.md`:
 ```markdown
 # My Team
 
 ## Engineering (Lead: CTO)
 - CTO — architecture, code review
-- Senior Backend — API, database
-- Frontend Dev — UI components
-- DevOps — CI/CD, infrastructure
-
-## Research (Lead: Research Director)
-- Research Director — strategy, paper writing
-- ML Scientist — experiments, analysis
-- Data Engineer — pipelines
+- Backend Dev — API, database
+- Frontend Dev — UI, components
 
 ## Quality (Lead: QA Lead)
 - QA Lead — test strategy
-- Security Reviewer — vulnerability analysis
+- Security Reviewer — vulnerability audits
 
 ## Priorities
-1. [URGENT] Ship MVP by Friday
-2. [IMPORTANT] Set up monitoring
-3. [RESEARCH] Evaluate new framework
+1. [URGENT] Fix checkout bug
+2. [IMPORTANT] Add caching layer
 
 ## Rules
 - No deploy without QA Lead sign-off
-- Security Reviewer has veto power
 ```
 
-That's it. The skill parses departments, identifies leads, launches everything.
-
-## How It Works
-
+Run it:
 ```
-You ─── /company ───► Reads COMPANY.md
-                          │
-                ┌─────────┼─────────┐
-                ▼         ▼         ▼
-          Research    Engineering  Quality
-            Lead        Lead        Lead
-              │           │           │
-         ┌────┼────┐   ┌──┼──┐    ┌──┼──┐
-         ▼    ▼    ▼   ▼  ▼  ▼    ▼  ▼  ▼
-       Workers...    Workers...   Workers...
-              │           │           │
-              ▼           ▼           ▼
-         ┌────────────────────────────────┐
-         │         BLACKBOARD.md          │
-         │  (shared across departments)   │
-         └────────────────────────────────┘
-                      │
-                      ▼
-              CEO synthesizes
+/company
 ```
 
-1. **Parse** — reads `COMPANY.md`, identifies departments, roles, priorities
-2. **Launch leads** — all department leads spawn in parallel
-3. **Workers activate** — leads decide who to wake based on priorities
-4. **Execute** — workers research, code, review — write to department folder
-5. **Synthesize** — leads write reports + key findings to blackboard
-6. **Quality gate** — quality department reviews other departments' claims
-7. **Status** — you get a unified report of everything
+All leads launch in parallel. Each lead reads the priorities, decides which workers to activate, collects their output, and writes findings to the blackboard. You get a unified status report.
 
-## Token Efficiency
+## How Agents Communicate
 
-Agents don't share context — they share a blackboard. Each worker reads only its task, writes only its finding. No token explosion.
+Agents never talk to each other directly. That would duplicate context across every agent.
 
-- **Context isolation** — workers get their task, not the full conversation
-- **On-demand activation** — leads only spawn workers for urgent priorities
-- **Persistent findings** — previous results reused, no duplicate research
-- **Incremental runs** — unchanged departments skip (~60% savings)
-- **Blackboard brevity** — max 5 lines per department
+Instead, every department writes to `.company/BLACKBOARD.md`:
 
-All agents use **Opus** by default. Override with `[sonnet]` or `[haiku]` tags on any role.
+```markdown
+## FROM: Engineering
+Backend API refactored. Auth endpoint 3x faster. Ready for QA.
 
-## File Structure
+## FROM: Quality
+Reviewed auth changes. SQL injection vector in line 42. BLOCKED.
+
+## FROM: Research
+Found paper on token-based caching. Could replace our Redis layer.
+```
+
+The CEO (you) reads the blackboard after all departments report. Department leads also read it to react to other teams' findings.
+
+Workers write detailed results to `.company/{department}/{worker}.md`. These files **persist across sessions** — next time the lead checks existing findings before spawning the same worker again.
+
+## Configuration
+
+### Departments and Roles
+
+The skill parses any markdown structure. Use `##` headers for departments, `-` list items for roles:
+
+```markdown
+## Department Name (Lead: Role Name)
+- Role Name — what they do
+- Another Role — their responsibility
+```
+
+The first role or the one marked `(Lead: ...)` becomes the department lead.
+
+### Priorities
+
+```markdown
+## Priorities
+1. [URGENT] Gets worked on immediately
+2. [IMPORTANT] Gets worked on if capacity allows
+3. [RESEARCH] Background investigation
+```
+
+Leads only spawn workers for items matching their department's expertise.
+
+### Rules
+
+```markdown
+## Rules
+- Quality department must sign off on all claims
+- No code ships without security review
+```
+
+Rules get injected into every lead's prompt. Use them for quality gates and approval workflows.
+
+### Model Override
+
+All agents use **Opus** by default. Override per role:
+
+```markdown
+- Data Entry Clerk — log processing [haiku]
+- Senior Architect — system design [sonnet]
+```
+
+## What Gets Created
 
 ```
-your-project/
-├── COMPANY.md              # Your org chart (you write this)
-├── .company/               # Created by the skill
-│   ├── BLACKBOARD.md       # Cross-department communication
-│   ├── PRIORITIES.md       # Session priorities
-│   ├── STATUS.md           # What happened
-│   └── {department}/       # Per-department workspace
-│       ├── REPORT.md       # Lead's synthesis
-│       └── {worker}.md     # Individual findings
-└── .claude/skills/company/ # The skill (installed once)
+.company/
+├── BLACKBOARD.md          # What departments are saying to each other
+├── PRIORITIES.md          # What's being worked on this session
+├── STATUS.md              # Final synthesis after all departments report
+├── engineering/
+│   ├── REPORT.md          # Lead's synthesis
+│   ├── backend-dev.md     # Worker's findings (persists across sessions)
+│   └── frontend-dev.md
+└── quality/
+    ├── REPORT.md
+    └── security-reviewer.md
 ```
+
+Add `.company/` to your `.gitignore`.
+
+## Incremental Runs
+
+Second time you run `/company`, it reads `.company/STATUS.md` from last time. Departments with no new priorities are skipped. Workers with existing findings aren't re-spawned. Saves ~60% of tokens on repeat runs.
 
 ## Examples
 
-- **`startup.md`** — 10-person tech startup
-- **`research-lab.md`** — Academic research group
-- **`dev-team.md`** — Software development team
-- **`nexusquant.md`** — 40-person AI research company
+See [`examples/`](examples/) for ready-to-use structures:
 
-## Comparison
+| File | Description |
+|------|-------------|
+| `startup.md` | 10-person tech startup |
+| `research-lab.md` | Academic research group |
+| `dev-team.md` | Software development sprint |
+| `nexusquant.md` | 40-person AI research company |
+
+## Why Not CrewAI / AutoGen / MetaGPT?
 
 | | Company | CrewAI | AutoGen | MetaGPT |
 |---|---|---|---|---|
-| Config | Markdown | Python | Python | JSON |
-| Install | 1 file | pip + framework | pip + framework | pip + framework |
-| Runs in | Claude Code | Separate process | Separate process | Separate process |
-| Communication | Blackboard | Direct messages | Group chat | Shared memory |
-| Persistence | Findings saved | None | None | None |
+| **Configure** | Markdown | Python | Python | JSON |
+| **Install** | Copy 1 file | pip + deps | pip + deps | pip + deps |
+| **Runs inside** | Claude Code | Own process | Own process | Own process |
+| **Communication** | File blackboard | Direct messages | Group chat | Shared memory |
+| **Context cost** | Isolated per agent | Shared (explodes) | Shared (explodes) | Shared |
+| **Findings persist** | Yes | No | No | No |
+| **Lines of config** | 20-50 | 100-500 | 200-1000 | 300+ |
+
+Those frameworks are general-purpose agent orchestrators. **Company** is a Claude Code skill — it works where you already work, with zero infrastructure.
 
 ## License
 
