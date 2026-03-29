@@ -102,17 +102,59 @@ BRIEFING (from previous cycle's compression):
 YOUR TEAM (execute-tier agents you can assign tasks to):
 {list of Sonnet workers in your department}
 
+AVAILABLE SKILLS (use these — they're battle-tested and better than raw work):
+
+Engineering skills:
+- /review — pre-landing code review, SQL safety, structural issues
+- /investigate — systematic debugging, root cause analysis, 4-phase method
+- /ship — PR creation, changelog, version bump, push
+- /qa — headless browser QA testing, find and fix bugs
+- /qa-only — report bugs without fixing
+- /browse — navigate any URL, interact, screenshot, verify
+- /benchmark — performance regression detection
+- /debug — systematic debugging with persistent state
+
+Planning skills:
+- /gsd:plan-phase — detailed execution plan with verification
+- /gsd:verify-work — validate features through conversational UAT
+- /gsd:progress — check project state, route to next action
+- /gsd:execute-phase — execute plans with atomic commits
+- /plan-ceo-review — rethink the problem, 10-star product, expand scope
+- /plan-eng-review — lock architecture, data flow, edge cases, tests
+- /plan-design-review — rate each design dimension 0-10
+
+Quality skills:
+- /careful — warns before destructive operations
+- /guard — directory-scoped edits + destructive command warnings
+- /retro — weekly engineering retrospective with trend tracking
+
+Documentation skills:
+- /document-release — update README/ARCHITECTURE/CHANGELOG after shipping
+- /design-consultation — research landscape, propose design system
+
+Meta skills:
+- /office-hours — YC-style forcing questions for strategy
+- /codex — independent code review, adversarial challenge mode
+
+When a task matches a skill, TELL YOUR WORKER TO USE THAT SKILL instead of
+doing it manually. A lead assigning "review the auth code" should write:
+  TASK: Run /review on the auth module changes
+  ASSIGN: Code Reviewer
+Not: "Read every file and check for bugs manually."
+
 INSTRUCTIONS:
 1. Read the briefing. What has changed since last cycle?
 2. Decide: what tasks should your workers do THIS cycle?
-3. Write task assignments to .company/cycles/cycle-{N}-think-{dept}.md
+3. For each task, check if an AVAILABLE SKILL handles it. If yes, assign the skill.
+4. Write task assignments to .company/cycles/cycle-{N}-think-{dept}.md
    Format per task:
    TASK: {one clear sentence}
    ASSIGN: {worker role}
+   SKILL: {skill to use, or "none" if raw work}
    CONTEXT: {relevant info from briefing, max 200 words}
-4. If you are a Quality/Critic role: review findings from previous cycle.
+5. If you are a Quality/Critic role: review findings from previous cycle.
    Write verdicts: APPROVED or REJECTED with reason.
-5. If all your department's priorities are DONE, write: STATUS: COMPLETE
+6. If all your department's priorities are DONE, write: STATUS: COMPLETE
 ```
 
 ### Phase B — EXECUTE (Sonnet, parallel)
@@ -131,11 +173,15 @@ CONTEXT:
 PREVIOUS WORK:
 {contents of .company/{dept}/{worker-slug}.md if exists}
 
+SKILL TO USE: {from lead's assignment, or "none"}
+
 INSTRUCTIONS:
-1. Execute the task. Search the web, read code, write code, analyze — whatever it takes.
-2. Write your finding to .company/{dept}/{worker-slug}.md
-3. Rate your finding: 1 (nothing new) to 5 (breakthrough)
-4. Append a message to .company/messages/{dept}.jsonl:
+1. If a SKILL was assigned, USE IT: invoke /review, /investigate, /qa, etc.
+   Skills are pre-built expert workflows — always better than doing it manually.
+2. If no skill assigned: search the web, read code, write code, analyze.
+3. Write your finding to .company/{dept}/{worker-slug}.md
+4. Rate your finding: 1 (nothing new) to 5 (breakthrough)
+5. Append a message to .company/messages/{dept}.jsonl:
    {"type":"finding|result|blocker|threat","from":"{ROLE}","priority":N,"content":"one paragraph summary"}
 ```
 
