@@ -151,7 +151,7 @@ Read all outputs:
 
 Write `.company/STATUS.md`:
 ```markdown
-# Swarm Status — {DATE}
+# Company Status — {DATE}
 
 ## Departments Active
 - {dept1}: {lead_role} + {n} workers
@@ -192,10 +192,28 @@ If `.company/STATUS.md` exists (previous run):
 3. Departments with completed work and no new tasks: SKIP (show as "idle").
 4. Estimated token savings: ~60% on repeat runs.
 
-## Anti-Patterns to Avoid
+## Agent Dropout (Inspired by ACL 2025)
 
-- **DON'T** launch all 40 roles as separate agents (token explosion)
-- **DON'T** give workers the full conversation context (they only need their task)
-- **DON'T** let agents talk to each other directly (use blackboard)
-- **DON'T** run quality reviews on the same thread as research (isolation)
-- **DON'T** keep idle departments running (on-demand only)
+Not every agent is useful every round. After the first run, `.company/STATUS.md`
+records which workers produced actionable output and which were idle.
+
+On subsequent runs:
+- Workers that produced findings last round: **auto-activate** for related priorities
+- Workers that were idle or produced no-ops: **skip unless explicitly needed**
+- New priorities that don't match any previous worker's domain: **activate fresh**
+
+This is a simplified version of AgentDropout (Wang et al., ACL 2025) which showed
+21.6% token savings with IMPROVED performance by pruning redundant agents.
+
+The key insight: fewer focused agents outperform many scattered ones.
+
+## Progressive Disclosure
+
+Workers don't get everything at once. Each worker prompt has three layers:
+
+1. **Task** (always included): "Answer this specific question: ..."
+2. **Context** (included if exists): Previous findings from `.company/{dept}/{worker}.md`
+3. **Background** (included only if task is complex): Relevant rules and cross-department blackboard entries
+
+This prevents workers from being overwhelmed with irrelevant context.
+Simple tasks get 200 tokens of prompt. Complex tasks get up to 2000.
