@@ -8,7 +8,7 @@ COMPANY.md  →  /company  →  waves of parallel agents  →  unified status
 
 ## The Problem
 
-You want 40 AI agents working together. But shared context explodes tokens, agents go stale, and communication is chaos.
+You want your whole team working together. But shared context explodes tokens, agents go stale, and communication is chaos.
 
 ## How It Works
 
@@ -116,7 +116,7 @@ Each agent gets ONLY: its task, its previous findings, relevant messages (priori
 | | Company | CrewAI | AutoGen | Overstory | agent_farm |
 |---|---|---|---|---|---|
 | Config | Markdown | Python | Python | YAML+SQLite | Python |
-| Max agents | 40 (in waves) | ~10 | ~10 | 25 | 50 |
+| Max agents | unlimited (in waves) | ~10 | ~10 | 25 | 50 |
 | Communication | Typed JSON | Direct msgs | Group chat | SQLite mail | Filesystem |
 | Context per agent | <3K tokens | Shared (100K+) | Shared | Isolated | Isolated |
 | Persistence | Findings + messages | None | None | SQLite | None |
@@ -129,7 +129,7 @@ Each agent gets ONLY: its task, its previous findings, relevant messages (priori
 | [`startup.md`](examples/startup.md) | 10-person startup |
 | [`research-lab.md`](examples/research-lab.md) | Academic group |
 | [`dev-team.md`](examples/dev-team.md) | Dev sprint team |
-| [`nexusquant.md`](examples/nexusquant.md) | 40-person AI company |
+| [`nexusquant.md`](examples/nexusquant.md) | Full AI research company |
 
 ## License
 

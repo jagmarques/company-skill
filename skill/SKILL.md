@@ -62,7 +62,7 @@ COMPRESS (Haiku)                        │
 Override any role with `[opus]`, `[sonnet]`, or `[haiku]` in COMPANY.md.
 
 **Cost per cycle:** ~$2-3 (5 Opus thinkers + 15 Sonnet workers + 2 Haiku compressors)
-**Cost for 3 cycles:** ~$7-9. All 40 agents run. With feedback.
+**Cost for 3 cycles:** ~$7-9. All agents run every cycle. With feedback.
 
 ## Step 0: Parse COMPANY.md
 
@@ -208,7 +208,7 @@ Cycle 1 output feeds Cycle 2 input. This means:
 - Workers build on each other's findings, not working blind
 
 Without the loop: agents work in isolation, findings never cross-pollinate.
-With the loop: 3 cycles of a 40-person company = 120 agent-actions, each informed by all previous actions.
+With the loop: 3 cycles of the full company = 3x agent-actions, each informed by all previous actions.
 
 ## File Structure
 
