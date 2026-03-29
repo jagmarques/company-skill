@@ -1,11 +1,10 @@
 ---
 name: company
-version: 1.0.0
+version: 2.0.0
 description: |
-  Multi-agent company orchestrator. Reads COMPANY.md, launches department leads in parallel,
-  each managing workers on-demand. Smart model routing per role. File-based blackboard
-  for communication. Use when: "launch company", "start company", "all agents", "full team",
-  or when COMPANY.md exists and user wants multi-agent execution.
+  Multi-agent company orchestrator. Reads COMPANY.md, runs agents in waves,
+  typed message passing, adaptive output budgets, context monitoring.
+  Use when: "launch company", "start company", "all agents", "full team".
 allowed-tools:
   - Bash
   - Read
@@ -18,202 +17,180 @@ allowed-tools:
   - WebFetch
 ---
 
-# /company — Multi-Agent Company Orchestrator
+# /company — Multi-Agent Company Orchestrator v2
 
-You are the CEO. This skill reads a company structure file and runs it as a multi-agent system.
+You are the CEO. Read a company structure, run it as waves of parallel agents.
 
-## Step 0: Find and Parse COMPANY.md
-
-```bash
-for f in COMPANY.md company.md COMPANY.md company.md; do [ -f "$f" ] && echo "FOUND: $f" && break; done
-```
-
-Read the structure file. Parse into this internal model:
-
-```
-departments = [
-  {
-    name: "Department Name",
-    lead: { role: "Lead Title", description: "...", model: "sonnet" },
-    workers: [
-      { role: "Worker Title", description: "...", model: "haiku" },
-      ...
-    ]
-  },
-  ...
-]
-rules = ["rule1", "rule2", ...]
-priorities = ["priority1", "priority2", ...]
-```
-
-### Model Assignment Rules (in priority order)
-
-1. **Explicit tag wins**: `[opus]`, `[sonnet]`, `[haiku]` in the role line
-2. **Role keywords → sonnet**: lead, director, manager, chief, head, principal, senior, architect, MVP, critical
-3. **Default**: `opus` (every agent deserves full intelligence)
-
-### Parsing Formats
-
-The skill handles any of these markdown patterns:
-
-**Department headers**: `## Department Name` or `## Department Name (Lead: Role)`
-**Role lines**: `- Role Name — description [model]` or `- **Role Name**: description [model]` or numbered lists
-**Rules section**: `## Rules` or `## Communication` or `## Protocol`
-**Priorities section**: `## Priorities` or `## Today` or `## Urgent`
-
-If no departments are defined, group roles by function automatically:
-- Research/science/theory/math roles → Research department
-- Engineering/code/build/test roles → Engineering department
-- Quality/review/critic/audit roles → Quality department
-- Writing/paper/docs/design roles → Paper department
-- Scout/scan/monitor/track roles → Intelligence department
-
-## Step 1: Initialize Workspace
+## Step 0: Parse COMPANY.md
 
 ```bash
-mkdir -p .company
+for f in COMPANY.md company.md; do [ -f "$f" ] && echo "FOUND: $f" && break; done
 ```
 
-Write `.company/PRIORITIES.md` from:
-1. The `## Priorities` section of COMPANY.md (if exists)
-2. The user's current message/instructions
-3. `.planning/NEXT_SESSION.md` (if exists)
-4. Ask the user if nothing else is available
+Read and parse into departments, roles, priorities, and rules.
 
-Write `.company/BLACKBOARD.md`:
-```markdown
-# Blackboard — {DATE}
-Departments append findings here. Max 5 lines per entry. CEO reads to decide.
-```
+**Model assignment:** Explicit `[opus]`/`[sonnet]`/`[haiku]` tags win. Default: `opus`.
 
-Create department directories:
+**Auto-grouping** (if no departments defined): group by function — research, engineering, quality, writing, intelligence.
+
+## Step 1: Initialize
+
 ```bash
-for dept in {parsed_department_names}; do mkdir -p ".company/$dept"; done
+mkdir -p .company/messages
 ```
 
-## Step 2: Launch Department Leads (ALL IN PARALLEL)
+Create `.company/PRIORITIES.md` from COMPANY.md priorities + user instructions + `.planning/NEXT_SESSION.md`.
 
-For EACH department, launch an Agent with this prompt:
+## Step 2: Run in Waves (from oh-my-claudecode)
+
+NOT all agents at once. Run in waves of 5-6, each wave's output feeds the next.
 
 ```
-You are the {LEAD_ROLE} for this project, leading the {DEPT_NAME} department.
-
-YOUR TEAM:
-{for each worker in department:}
-- {WORKER_ROLE}: {DESCRIPTION} [model: {MODEL}]
-
-TODAY'S PRIORITIES:
-{contents of .company/PRIORITIES.md}
-
-PREVIOUS STATE:
-{contents of .company/{dept}/REPORT.md if it exists, else "First run — no previous state."}
-
-RULES:
-{contents of rules section from COMPANY.md}
-
-YOUR INSTRUCTIONS:
-1. Read the priorities. Decide which team members to activate for URGENT items.
-2. For each active worker, spawn a sub-agent with:
-   - model: opus (all workers use Opus for maximum intelligence)
-   - A SPECIFIC task: one clear question or implementation goal
-   - Workers write results to .company/{DEPT_NAME}/{WORKER_ROLE_SLUG}.md (max 300 words)
-3. If a worker's previous report (.company/{DEPT_NAME}/{WORKER_ROLE_SLUG}.md) already
-   answers the question, DO NOT re-spawn. Reuse the existing finding.
-4. After workers complete, write:
-   - .company/{DEPT_NAME}/REPORT.md (max 500 words): full department synthesis
-   - Append to .company/BLACKBOARD.md: "## FROM: {DEPT_NAME}\n{3-5 line summary}"
-
-TOKEN RULES:
-- Only spawn workers for URGENT priorities
-- Workers get max 300 words output
-- Reuse existing findings when possible
-- If you can answer from your own knowledge, don't spawn a worker
+Wave 1: Department Leads (all parallel, 5-6 agents)
+    ↓ each lead writes REPORT.md
+Wave 2: Workers for URGENT priorities (parallel per dept, 3-4 per lead)
+    ↓ each worker writes {worker}.md
+Wave 3: Quality review of Wave 1+2 findings (2-3 agents)
+    ↓ quality writes verdicts
+Wave 4: CEO synthesis (you)
 ```
 
-Set each lead's model from their parsed model tag.
+Each wave starts FRESH — agents in Wave 2 don't inherit Wave 1's context.
+They read only: their task + previous findings files. Context stays small.
 
-**CRITICAL: Launch ALL leads in a SINGLE message with multiple Agent tool calls.**
-This ensures true parallel execution.
+## Step 3: Typed Messages (from Overstory)
 
-## Step 3: Quality Gate (if quality department exists)
+Agents communicate via typed JSON messages in `.company/messages/`:
 
-After all leads complete, check if a Quality/Review department was defined.
-If so, read its REPORT.md for any claims flagged as UNVALIDATED.
+```json
+{"type": "finding", "from": "Lattice Mathematician", "to": "all", "priority": 3, "content": "Shell-based E8 encoding saves 23% at 3-bit", "timestamp": "2026-03-30T01:00:00Z"}
+{"type": "question", "from": "CTO", "to": "Numerical Stability Engineer", "priority": 4, "content": "Does ScreeNOT handle correlated noise?", "timestamp": "..."}
+{"type": "blocker", "from": "Chief Critic", "to": "all", "priority": 5, "content": "MP threshold claim fails on correlated data. DO NOT use in paper.", "timestamp": "..."}
+{"type": "result", "from": "Benchmark Engineer", "to": "all", "priority": 4, "content": "E8 3-bit + temporal delta = 5.68x on real KV. Validated.", "timestamp": "..."}
+{"type": "threat", "from": "GitHub Scout", "to": "CEO", "priority": 5, "content": "LatticeQuant repo appeared today doing E8 + entropy for KV cache", "timestamp": "..."}
+```
 
-For each unvalidated claim, the quality lead should have already spawned
-a Devil's Advocate or Reviewer worker. If not, flag it in STATUS.md.
+**Message types:** finding, question, answer, result, blocker, threat, task, done, veto
 
-## Step 4: CEO Synthesis
+**Priority:** 1 (low) to 5 (critical). Agents reading messages filter by priority >= 3 to save tokens.
 
-Read all outputs:
-- `.company/BLACKBOARD.md` — cross-department findings
-- `.company/{dept}/REPORT.md` — detailed department reports
+Messages append to `.company/messages/{dept}.jsonl` (one file per department, append-only).
+
+## Step 4: Adaptive Output Budget (rate-distortion inspired)
+
+Workers self-rate their finding's importance (1-5) and get proportional output:
+
+| Rating | Meaning | Budget |
+|--------|---------|--------|
+| 1 | Nothing new | 50 words |
+| 2 | Minor update | 150 words |
+| 3 | Useful finding | 400 words |
+| 4 | Important result with evidence | 800 words |
+| 5 | Breakthrough — changes strategy | 1500 words + data |
+
+Inject this into every worker's prompt:
+```
+Rate your finding 1-5. Write proportionally. A "nothing new" is 50 words.
+A breakthrough gets 1500 words. Don't waste tokens on low-value output.
+```
+
+## Step 5: Launch Wave 1 — Department Leads
+
+For EACH department, launch an Agent (ALL in a single message for parallel execution):
+
+```
+You are {LEAD_ROLE}, leading {DEPT_NAME}.
+
+TEAM: {worker list with descriptions}
+PRIORITIES: {from .company/PRIORITIES.md}
+PREVIOUS STATE: {from .company/{dept}/REPORT.md if exists}
+MESSAGES: {from .company/messages/{dept}.jsonl, priority >= 3}
+RULES: {from COMPANY.md rules section}
+
+INSTRUCTIONS:
+1. Read priorities. Decide which workers to activate for URGENT items.
+2. For each worker, spawn a sub-agent with model: opus.
+   Give ONE specific task. Worker writes to .company/{dept}/{worker-slug}.md
+   Worker also appends a typed JSON message to .company/messages/{dept}.jsonl
+3. If .company/{dept}/{worker-slug}.md already has a recent answer, SKIP that worker.
+4. After workers finish:
+   - Write .company/{dept}/REPORT.md (synthesis, max 800 words)
+   - Append typed messages to .company/messages/{dept}.jsonl for cross-dept findings
+
+WORKER PROMPT TEMPLATE:
+You are {WORKER_ROLE}. One task: {SPECIFIC_TASK}
+Previous findings: {contents of .company/{dept}/{worker-slug}.md or "none"}
+Rate your finding 1-5 and write proportionally (50-1500 words).
+Append a JSON message to .company/messages/{dept}.jsonl:
+{"type":"finding|result|blocker|threat","from":"{WORKER_ROLE}","to":"all","priority":N,"content":"..."}
+```
+
+## Step 6: Launch Wave 2 — Quality Gate
+
+After Wave 1 completes, launch the Quality department (if defined):
+
+The quality lead reads ALL `.company/messages/*.jsonl` files and reviews:
+- Every `finding` and `result` message gets a verdict
+- `blocker` messages get escalated
+- Writes verdicts as `veto` or `approved` messages
+
+## Step 7: CEO Synthesis
+
+Read:
+- All `.company/messages/*.jsonl` (filtered priority >= 3)
+- All `.company/{dept}/REPORT.md`
 
 Write `.company/STATUS.md`:
 ```markdown
 # Company Status — {DATE}
 
-## Departments Active
-- {dept1}: {lead_role} + {n} workers
-- {dept2}: {lead_role} + {n} workers
+## Wave Summary
+- Wave 1: {N} leads, {M} workers activated
+- Wave 2: {K} quality reviews
 
-## Accomplished
-- {what got done, bullet points}
+## Key Findings (priority 4-5 only)
+{from typed messages}
 
-## Discovered
-- {new findings from research/scouts}
-
-## Quality Gates
-- {PASS}: {claim} — validated by {reviewer}
-- {FAIL}: {claim} — rejected because {reason}
+## Quality Verdicts
+{approved / vetoed claims}
 
 ## Threats
-- {competitive alerts from scouts}
+{from scout messages}
 
-## Next Actions
-1. {highest priority}
-2. {second priority}
-3. {third priority}
+## Next Priorities
+{updated based on findings}
 ```
 
-Report the summary to the user. Keep it concise — the user can read the full
-reports in `.company/` if they want details.
+## Incremental Runs (from agent_farm)
 
-## Step 5: Update Persistent State
+On repeat runs:
+1. Read `.company/STATUS.md` — what happened last time
+2. Read `.company/messages/*.jsonl` — accumulated knowledge
+3. Skip departments with no new priorities
+4. Skip workers whose `.company/{dept}/{worker}.md` already answers current priorities
+5. Only launch waves that have work to do
 
-If `.planning/NEXT_SESSION.md` exists, append new findings.
-The `.company/` directory persists across sessions — next run reads previous state.
+## Agent Dropout (from ACL 2025)
 
-## Incremental Mode
+Track which workers produced priority 4-5 findings vs priority 1-2.
 
-If `.company/STATUS.md` exists (previous run):
-1. Read it. Show user what was done before.
-2. Only re-launch departments that have NEW priorities or FAILED quality gates.
-3. Departments with completed work and no new tasks: SKIP (show as "idle").
-4. Estimated token savings: ~60% on repeat runs.
+On next run:
+- Priority 4-5 producers: auto-activate for related priorities
+- Priority 1-2 producers: skip unless priorities changed
+- Never-activated workers: try once, then skip if low-value
 
-## Agent Dropout (Inspired by ACL 2025)
+## Context Hygiene (from agent_farm)
 
-Not every agent is useful every round. After the first run, `.company/STATUS.md`
-records which workers produced actionable output and which were idle.
+Each agent gets ONLY:
+- Its task (1-3 sentences)
+- Its previous findings file (if exists)
+- Relevant typed messages (priority >= 3)
+- Rules from COMPANY.md
 
-On subsequent runs:
-- Workers that produced findings last round: **auto-activate** for related priorities
-- Workers that were idle or produced no-ops: **skip unless explicitly needed**
-- New priorities that don't match any previous worker's domain: **activate fresh**
+NEVER give an agent:
+- The full conversation history
+- Other departments' full reports
+- All messages (only priority >= 3)
+- The CEO's synthesis (that's for humans)
 
-This is a simplified version of AgentDropout (Wang et al., ACL 2025) which showed
-21.6% token savings with IMPROVED performance by pruning redundant agents.
-
-The key insight: fewer focused agents outperform many scattered ones.
-
-## Progressive Disclosure
-
-Workers don't get everything at once. Each worker prompt has three layers:
-
-1. **Task** (always included): "Answer this specific question: ..."
-2. **Context** (included if exists): Previous findings from `.company/{dept}/{worker}.md`
-3. **Background** (included only if task is complex): Relevant rules and cross-department blackboard entries
-
-This prevents workers from being overwhelmed with irrelevant context.
-Simple tasks get 200 tokens of prompt. Complex tasks get up to 2000.
+This keeps each agent's input under 3000 tokens even in a 40-role company.
