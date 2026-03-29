@@ -78,7 +78,59 @@ Read and classify every role into THINK, EXECUTE, or COMPRESS:
 
 Users override with explicit `[opus]`/`[sonnet]`/`[haiku]` tags.
 
-## Step 1: Initialize
+## Step 1: Install and Detect Skills
+
+The company skill auto-installs recommended skill packs that make agents more powerful.
+
+```bash
+# Check what's already installed
+INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
+  [ -f "$d" ] && basename "$(dirname "$d")"
+done 2>/dev/null | sort -u)
+echo "Already installed: $INSTALLED"
+
+# Install gstack (gives: review, ship, qa, investigate, browse, benchmark, etc.)
+if ! echo "$INSTALLED" | grep -q "gstack"; then
+  echo "Installing gstack skill pack..."
+  cd ~/.claude/skills 2>/dev/null || mkdir -p ~/.claude/skills && cd ~/.claude/skills
+  git clone --depth 1 https://github.com/gstack-com/gstack.git 2>/dev/null && echo "gstack installed" || echo "gstack install failed (optional)"
+fi
+
+# Install GSD (gives: plan-phase, execute-phase, verify-work, progress, etc.)
+if ! echo "$INSTALLED" | grep -q "gsd"; then
+  echo "Installing GSD..."
+  npx -y gsd-install 2>/dev/null && echo "GSD installed" || echo "GSD install failed (optional)"
+fi
+
+# Re-detect after install
+for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
+  [ -f "$d" ] && basename "$(dirname "$d")"
+done 2>/dev/null | sort -u
+```
+
+Build {DETECTED_SKILLS} from the output. Map each to a one-line description:
+
+| Skill | Description for leads |
+|-------|----------------------|
+| review | /review — code review with structural analysis |
+| investigate | /investigate — systematic debugging, root cause |
+| ship | /ship — PR creation, changelog, push |
+| qa | /qa — headless browser testing |
+| browse | /browse — navigate URLs, screenshot, verify |
+| benchmark | /benchmark — performance regression detection |
+| plan-eng-review | /plan-eng-review — architecture review |
+| plan-ceo-review | /plan-ceo-review — strategic scope review |
+| retro | /retro — engineering retrospective |
+| office-hours | /office-hours — strategy forcing questions |
+| codex | /codex — independent code review |
+| design-review | /design-review — visual QA |
+| gsd:plan-phase | /gsd:plan-phase — detailed execution planning |
+| gsd:verify-work | /gsd:verify-work — feature validation |
+| gsd:progress | /gsd:progress — project state check |
+
+**If installs fail, the skill still works.** Agents fall back to raw tools. Skills are power-ups — the company runs with or without them.
+
+## Step 2: Initialize
 
 ```bash
 mkdir -p .company/cycles .company/messages
@@ -102,39 +154,11 @@ BRIEFING (from previous cycle's compression):
 YOUR TEAM (execute-tier agents you can assign tasks to):
 {list of Sonnet workers in your department}
 
-AVAILABLE SKILLS (use these — they're battle-tested and better than raw work):
+AVAILABLE SKILLS (auto-detected — only shows what's installed):
+{DETECTED_SKILLS}
 
-Engineering skills:
-- /review — pre-landing code review, SQL safety, structural issues
-- /investigate — systematic debugging, root cause analysis, 4-phase method
-- /ship — PR creation, changelog, version bump, push
-- /qa — headless browser QA testing, find and fix bugs
-- /qa-only — report bugs without fixing
-- /browse — navigate any URL, interact, screenshot, verify
-- /benchmark — performance regression detection
-- /debug — systematic debugging with persistent state
-
-Planning skills:
-- /gsd:plan-phase — detailed execution plan with verification
-- /gsd:verify-work — validate features through conversational UAT
-- /gsd:progress — check project state, route to next action
-- /gsd:execute-phase — execute plans with atomic commits
-- /plan-ceo-review — rethink the problem, 10-star product, expand scope
-- /plan-eng-review — lock architecture, data flow, edge cases, tests
-- /plan-design-review — rate each design dimension 0-10
-
-Quality skills:
-- /careful — warns before destructive operations
-- /guard — directory-scoped edits + destructive command warnings
-- /retro — weekly engineering retrospective with trend tracking
-
-Documentation skills:
-- /document-release — update README/ARCHITECTURE/CHANGELOG after shipping
-- /design-consultation — research landscape, propose design system
-
-Meta skills:
-- /office-hours — YC-style forcing questions for strategy
-- /codex — independent code review, adversarial challenge mode
+If no skills are detected, workers do everything with raw tools (Read, Write,
+Edit, Bash, Grep, Glob, Agent, WebSearch). Skills are optional power-ups.
 
 When a task matches a skill, TELL YOUR WORKER TO USE THAT SKILL instead of
 doing it manually. A lead assigning "review the auth code" should write:
@@ -173,12 +197,12 @@ CONTEXT:
 PREVIOUS WORK:
 {contents of .company/{dept}/{worker-slug}.md if exists}
 
-SKILL TO USE: {from lead's assignment, or "none"}
+SKILL TO USE: {from lead's assignment, or "none — use raw tools"}
 
 INSTRUCTIONS:
-1. If a SKILL was assigned, USE IT: invoke /review, /investigate, /qa, etc.
-   Skills are pre-built expert workflows — always better than doing it manually.
-2. If no skill assigned: search the web, read code, write code, analyze.
+1. If a SKILL was assigned and it exists, USE IT. Skills are expert workflows.
+2. If the skill doesn't exist or none was assigned, use raw tools:
+   Read, Write, Edit, Bash, Grep, Glob, WebSearch — whatever the task needs.
 3. Write your finding to .company/{dept}/{worker-slug}.md
 4. Rate your finding: 1 (nothing new) to 5 (breakthrough)
 5. Append a message to .company/messages/{dept}.jsonl:
