@@ -1,198 +1,136 @@
-# Claude Swarm
+# Company
 
-A Claude Code skill that turns a markdown file into a running multi-agent company. Write your org chart, type `/swarm`, and every role activates — communicating through a shared blackboard, with smart model routing so critical thinkers get the power they need.
+Run your AI company from a markdown file. One skill. Every role activates.
 
-## Why This Exists
+## What It Does
 
-Running 40+ AI agents in parallel sounds powerful but burns tokens fast and creates chaos. Claude Swarm solves this with three ideas:
-
-1. **Describe your org in markdown.** No code, no config, no framework. Just a `SWARM.md` file listing departments, roles, and who reports to whom.
-
-2. **Smart model routing.** Not every agent needs the most expensive model. Tag critical roles as `[opus]`, give leads `[sonnet]`, let routine workers run on `[haiku]`. The skill reads your tags and routes accordingly.
-
-3. **Blackboard communication.** Agents don't talk to each other directly (that duplicates context and explodes tokens). They write to a shared board. Each department gets one section. The orchestrator reads the board and makes decisions. Simple, efficient, auditable.
+Write an org chart in `COMPANY.md`. Type `/company` in Claude Code. Every department lead launches in parallel, spawns their workers, and reports back through a shared blackboard. You get a unified status of what was accomplished, discovered, and what to do next.
 
 ## Install
 
 ```bash
-# Copy the skill into your Claude Code project
-cp -r skill/ .claude/skills/swarm/
+cp -r skill/ .claude/skills/company/
 ```
 
-Or one-liner:
+Or:
 ```bash
-curl -sL https://raw.githubusercontent.com/jagmarques/claude-swarm/main/install.sh | bash
+curl -sL https://raw.githubusercontent.com/jagmarques/company-skill/main/install.sh | bash
 ```
 
-Then in Claude Code:
+Then:
 ```
-/swarm
+/company
 ```
 
-## Configuration
+## Write Your Company
 
-Create a `SWARM.md` in your project root:
+Create `COMPANY.md` in your project root:
 
 ```markdown
-# My Company
+# My Team
 
 ## Engineering (Lead: CTO)
-- CTO — architecture decisions, code review [sonnet]
-- Senior Backend — core API, database [sonnet]
-- Junior Frontend — UI components [haiku]
-- DevOps — CI/CD, infrastructure [haiku]
+- CTO — architecture, code review
+- Senior Backend — API, database
+- Frontend Dev — UI components
+- DevOps — CI/CD, infrastructure
 
 ## Research (Lead: Research Director)
-- Research Director — paper strategy [sonnet]
-- ML Scientist — experiments, analysis [opus]
-- Data Engineer — pipelines, preprocessing [haiku]
+- Research Director — strategy, paper writing
+- ML Scientist — experiments, analysis
+- Data Engineer — pipelines
 
 ## Quality (Lead: QA Lead)
-- QA Lead — test strategy [sonnet]
-- Security Reviewer — vulnerability analysis [opus]
-- Code Reviewer — style, patterns [haiku]
-```
+- QA Lead — test strategy
+- Security Reviewer — vulnerability analysis
 
-### Model Tags
-
-Add `[opus]`, `[sonnet]`, or `[haiku]` to any role to override the default.
-**Default: all agents use Opus** for maximum intelligence. Every worker deserves
-the best model — smart agents produce better results and waste fewer iterations.
-
-Override selectively when you want to optimize cost:
-- `[haiku]` for high-volume routine tasks (scanning, formatting)
-- `[sonnet]` for balanced cost/quality
-
-### Communication Rules (Optional)
-
-```markdown
-## Rules
-- No claim enters production without QA Lead sign-off
-- Security Reviewer has veto power
-- Research findings go to Engineering before implementation
-```
-
-### Priorities (Optional)
-
-```markdown
 ## Priorities
-1. [URGENT] Fix authentication bug in login flow
-2. [IMPORTANT] Implement new caching layer
-3. [RESEARCH] Evaluate vector database options
+1. [URGENT] Ship MVP by Friday
+2. [IMPORTANT] Set up monitoring
+3. [RESEARCH] Evaluate new framework
+
+## Rules
+- No deploy without QA Lead sign-off
+- Security Reviewer has veto power
 ```
+
+That's it. The skill parses departments, identifies leads, launches everything.
 
 ## How It Works
 
 ```
-You (CEO) ─── /swarm ───► Skill reads SWARM.md
-                              │
-                    ┌─────────┼─────────┐
-                    ▼         ▼         ▼
-              Research    Engineering  Quality
-              Lead [S]    Lead [S]    Lead [S]
-                │           │           │
-           ┌────┼────┐   ┌──┼──┐     ┌──┼──┐
-           ▼    ▼    ▼   ▼  ▼  ▼     ▼  ▼  ▼
-          ML  Data  ...  Sr Jr Dev   Sec  CR ...
-         [O]  [H]       [S][H][H]   [O] [H]
-
-         Writes to: .swarm/research/    .swarm/quality/
-                         │                    │
-                         ▼                    ▼
-                    ┌─────────────────────────────┐
-                    │     BLACKBOARD.md            │
-                    │  (shared across all depts)   │
-                    └─────────────────────────────┘
-                              │
-                              ▼
-                    CEO synthesizes, decides next
+You ─── /company ───► Reads COMPANY.md
+                          │
+                ┌─────────┼─────────┐
+                ▼         ▼         ▼
+          Research    Engineering  Quality
+            Lead        Lead        Lead
+              │           │           │
+         ┌────┼────┐   ┌──┼──┐    ┌──┼──┐
+         ▼    ▼    ▼   ▼  ▼  ▼    ▼  ▼  ▼
+       Workers...    Workers...   Workers...
+              │           │           │
+              ▼           ▼           ▼
+         ┌────────────────────────────────┐
+         │         BLACKBOARD.md          │
+         │  (shared across departments)   │
+         └────────────────────────────────┘
+                      │
+                      ▼
+              CEO synthesizes
 ```
 
-**[O]** = Opus &nbsp; **[S]** = Sonnet &nbsp; **[H]** = Haiku
+1. **Parse** — reads `COMPANY.md`, identifies departments, roles, priorities
+2. **Launch leads** — all department leads spawn in parallel
+3. **Workers activate** — leads decide who to wake based on priorities
+4. **Execute** — workers research, code, review — write to department folder
+5. **Synthesize** — leads write reports + key findings to blackboard
+6. **Quality gate** — quality department reviews other departments' claims
+7. **Status** — you get a unified report of everything
 
-### Execution Flow
+## Token Efficiency
 
-1. **Parse** — Skill reads `SWARM.md`, identifies departments, roles, model assignments
-2. **Prioritize** — Reads `## Priorities` section (or asks you)
-3. **Launch leads** — All department leads spawn in parallel
-4. **Leads activate workers** — Each lead decides which team members to wake based on priorities
-5. **Workers execute** — Web search, code, analysis — write results to department folder
-6. **Leads synthesize** — Each lead writes a report + key findings to blackboard
-7. **Quality gate** — Quality department reviews claims from other departments
-8. **CEO synthesis** — You get a unified status with accomplished/discovered/threats/next
+Agents don't share context — they share a blackboard. Each worker reads only its task, writes only its finding. No token explosion.
 
-### Token Efficiency
-
-| Pattern | What Happens | Why It's Worse |
-|---------|-------------|----------------|
-| All 40 agents in main thread | Context explodes, agents go stale | Shared context = duplicated tokens |
-| **Claude Swarm** | **Isolated agents, shared blackboard** | **Each agent reads only what it needs** |
-
-All agents run Opus by default. Token efficiency comes from:
-- **Context isolation** — agents only read their department + blackboard, not the full history
+- **Context isolation** — workers get their task, not the full conversation
 - **On-demand activation** — leads only spawn workers for urgent priorities
-- **Persistent findings** — workers check previous results before re-researching
-- **Incremental runs** — skip departments with no new work (~60% savings)
-- **Blackboard brevity** — max 5 lines per department, forces conciseness
+- **Persistent findings** — previous results reused, no duplicate research
+- **Incremental runs** — unchanged departments skip (~60% savings)
+- **Blackboard brevity** — max 5 lines per department
 
-## Examples
-
-See `examples/` for ready-to-use company structures:
-
-- **`startup.md`** — 10-person tech startup (CEO, CTO, 3 eng, 2 design, PM, QA, marketing)
-- **`research-lab.md`** — Academic research group (PI, 4 researchers, 2 reviewers, 1 writer)
-- **`dev-team.md`** — Software development team (tech lead, 5 devs, QA, DevOps)
-- **`nexusquant.md`** — 40-person AI research company (the structure that inspired this project)
+All agents use **Opus** by default. Override with `[sonnet]` or `[haiku]` tags on any role.
 
 ## File Structure
 
 ```
 your-project/
-├── SWARM.md              # Your company structure (you write this)
-├── .swarm/               # Created by the skill (gitignore this)
-│   ├── BLACKBOARD.md     # Cross-department communication
-│   ├── PRIORITIES.md     # Current session priorities
-│   ├── STATUS.md         # Company status after each run
-│   ├── research/         # Research department workspace
-│   │   ├── REPORT.md
-│   │   └── {worker}.md
-│   ├── engineering/
-│   │   ├── REPORT.md
-│   │   └── {worker}.md
-│   └── quality/
-│       ├── REPORT.md
-│       └── {worker}.md
-└── .claude/
-    └── skills/
-        └── swarm/
-            └── SKILL.md  # The skill (installed once)
+├── COMPANY.md              # Your org chart (you write this)
+├── .company/               # Created by the skill
+│   ├── BLACKBOARD.md       # Cross-department communication
+│   ├── PRIORITIES.md       # Session priorities
+│   ├── STATUS.md           # What happened
+│   └── {department}/       # Per-department workspace
+│       ├── REPORT.md       # Lead's synthesis
+│       └── {worker}.md     # Individual findings
+└── .claude/skills/company/ # The skill (installed once)
 ```
 
-## Advanced
+## Examples
 
-### Incremental Runs
-
-On repeat runs, the skill reads `.swarm/STATUS.md` and only re-activates departments with new work. Saves ~60% tokens.
-
-### Custom Communication Rules
-
-The `## Rules` section in `SWARM.md` gets injected into every lead's prompt. Use it for quality gates, approval workflows, or domain-specific constraints.
-
-### Agent Persistence
-
-Workers write findings to `.swarm/{dept}/{worker}.md`. These persist across sessions. Next run, leads check existing findings before spawning workers — avoiding duplicate research.
+- **`startup.md`** — 10-person tech startup
+- **`research-lab.md`** — Academic research group
+- **`dev-team.md`** — Software development team
+- **`nexusquant.md`** — 40-person AI research company
 
 ## Comparison
 
-| Feature | Claude Swarm | CrewAI | AutoGen | MetaGPT | wshobson/agents |
-|---------|-------------|--------|---------|---------|----------------|
-| Config format | Markdown | Python | Python | JSON | YAML |
-| Install | Copy 1 file | pip | pip | pip | Clone repo |
-| Runtime | Claude Code native | Separate process | Separate process | Separate process | Claude Code |
-| Token efficiency | Model tiering + isolation | Shared context | Shared context | Shared context | Per-agent |
-| Agent communication | File blackboard | Direct messages | Group chat | Shared memory | File-based |
-| Learning | Persists findings | None | None | None | None |
-| Lines of config | 20-50 | 100-500 | 200-1000 | 300+ | 50-200 |
+| | Company | CrewAI | AutoGen | MetaGPT |
+|---|---|---|---|---|
+| Config | Markdown | Python | Python | JSON |
+| Install | 1 file | pip + framework | pip + framework | pip + framework |
+| Runs in | Claude Code | Separate process | Separate process | Separate process |
+| Communication | Blackboard | Direct messages | Group chat | Shared memory |
+| Persistence | Findings saved | None | None | None |
 
 ## License
 
