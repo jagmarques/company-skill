@@ -10,7 +10,6 @@ A Claude Code skill that reads your team structure from `COMPANY.md`, runs every
 
 ## Install
 
-npm:
 ```bash
 npx company-skill install
 ```
@@ -27,72 +26,78 @@ Edit `COMPANY.md` with your team. Or skip it, the skill creates a minimal compan
 ```
 GOAL: "Build the auth system"
 
-  THINK     Leads break the goal into tasks
-  EXECUTE   Employees do the work
-  VERIFY    Built-in Reviewer + Critic check if the goal is met
+  THINK     CEO picks relevant employees, leads assign tasks
+  EXECUTE   Employees do the work, use installed skills
+  VERIFY    Reviewer checks criteria.json, Advocate attacks results
 
-  Not done? Loop back with feedback on what's missing.
-  Done? Write STATUS.md, report to user.
+  Not done? Loop back with feedback.
+  Done? Update playbook, write STATUS.md.
 ```
 
-No arbitrary limit. The loop runs until ALL criteria in `criteria.json` pass. A Stop Hook blocks Claude from exiting early. To cancel: `touch .company/CANCEL`.
+The loop runs until ALL criteria in `criteria.json` pass. A Stop Hook blocks Claude from exiting early. To cancel: `touch .company/CANCEL`.
+
+## Goal Enforcement
+
+The skill creates `criteria.json` with checkable success criteria:
+
+```json
+{"goal":"Build auth","criteria":[
+  {"id":1,"description":"OAuth2 login works with Google","passes":false,"evidence":null},
+  {"id":2,"description":"All tests pass","passes":false,"evidence":null}
+]}
+```
+
+The reviewer updates `passes` to `true` with evidence as work completes. The stop hook reads this file and blocks exit until everything passes.
+
+## Self-Improvement
+
+One file: `.company/playbook.md`. Accumulates across sessions.
+
+After each session, the CEO writes:
+- WORKED: what succeeded (with evidence)
+- FAILED: what failed, USE INSTEAD: what works, WHY: the difference
+- INEFFICIENT: what was slow, FASTER: better approach
+- TOP: best employees for priority activation next time
+- HIRE/FIRE: roles added or deactivated
+
+Leads read the playbook before every THINK phase. Employees check failed approaches before proposing new ones. The company that starts session 5 is smarter than session 1.
+
+The CEO also updates COMPANY.md: tags `[inactive]` on zero-contribution roles, `[priority]` on top performers, adds hired roles, evolves employee descriptions based on what they're good at.
 
 ## Built-In Roles
 
-Every company gets these employees automatically, even if your COMPANY.md is empty:
+Every company gets these automatically:
 
 | Role | Phase | What they do |
 |------|-------|-------------|
-| CEO | THINK | Sets priorities, resolves conflicts |
+| CEO | THINK | Picks relevant employees for the goal, resolves conflicts |
 | CTO | THINK | Technical decisions, architecture |
-| Internal Reviewer | VERIFY | Checks work against goal criteria |
+| Internal Reviewer | VERIFY | Checks criteria.json, rejects findings without sources |
 | User Advocate | VERIFY | Represents the end user |
 | Devil's Advocate | VERIFY | Attacks results, finds holes |
 | Elegance Enforcer | VERIFY | Prevents over-engineering |
 
-If you define these roles in COMPANY.md, the skill uses your description instead. No duplicates.
+Deduplicated if you define them in COMPANY.md.
 
-A minimal `/company "fix the login bug"` with no COMPANY.md runs: CEO + CTO + 2 auto-created engineers + 4 built-in reviewers = 8 employees.
+## Source Citations
 
-## Write Your Company
+Every finding needs a source:
+- Existing claims: file path, URL, or command output
+- Novel ideas: "NOVEL - needs validation" (reviewer adds a validation criterion)
 
-`COMPANY.md` adds your own employees on top of the built-ins:
-
-```markdown
-# My Team
-
-## Executive (Lead: CEO)
-- CEO, product vision, customer focus
-- CTO, architecture, technical standards
-
-## Engineering (Lead: CTO)
-- Backend Developer, API, database
-- Frontend Developer, UI, components
-- DevOps Engineer, CI/CD, monitoring
-
-## Priorities
-1. [URGENT] Fix payment processing
-2. [IMPORTANT] Add user dashboard
-
-## Rules
-- No deploy without review
-```
+No source = rejected by reviewer.
 
 ## Commands
 
 ```
-/company "Build X"      Run the company until X is done
-/company                Run using priorities from COMPANY.md
-/company:run "Build X"  Same as /company "Build X"
-/company:status         Show last status without running
-/company:resume         Continue from where last session stopped
+/company "Build X"      Run until X is done
+/company                Run using COMPANY.md priorities
+/company:run "Build X"  Same as above
+/company:status         Show last status
+/company:resume         Continue from last session
 ```
 
-Installs globally. Works from any directory.
-
 ## Visual Indicators
-
-When the skill runs, you see:
 
 ```
 ════════════════════════════════════════════════
@@ -105,35 +110,28 @@ When the skill runs, you see:
 
 📋 CYCLE 1 VERDICT: NOT DONE
 Missing validation of compression ratios
-
-════════════════════════════════════════════════
-🏢 CYCLE 2 - THINK > EXECUTE > VERIFY
-════════════════════════════════════════════════
-
-📋 CYCLE 2 VERDICT: DONE
-All success criteria met
 ```
 
-Employees show with colors: leads (cyan), workers (green), reviewers (yellow), digest (gray). Skills are mandatory when installed.
+Employees show with colors: leads (cyan), workers (green), reviewers (yellow), digest (gray).
 
 ## Agents
 
-| Agent | Phase | Color | Role |
-|-------|-------|-------|------|
-| company-lead | THINK | Cyan | Department leads, deciding what to do |
-| company-worker | EXECUTE | Green | Employees doing the actual work |
-| company-reviewer | VERIFY | Yellow | Internal Reviewer, checking quality |
-| company-critic | VERIFY | Yellow | Devil's Advocate, finding holes |
-| company-digest | COMPRESS | Gray | Compresses output between cycles |
+| Agent | Phase | Color |
+|-------|-------|-------|
+| company-lead | THINK | Cyan |
+| company-worker | EXECUTE | Green |
+| company-reviewer | VERIFY | Yellow |
+| company-critic | VERIFY | Yellow |
+| company-digest | COMPRESS | Gray |
 
 ## Model Assignment
 
 | Phase | Model | Who |
 |-------|-------|-----|
-| THINK | Opus | CEO, CTO, department leads |
-| EXECUTE | Sonnet | Engineers, researchers, scouts |
-| VERIFY | Opus | Reviewer, Advocate, Enforcer, User Advocate |
-| COMPRESS | Haiku | Digest writer between cycles |
+| THINK | Opus | CEO, CTO, leads |
+| EXECUTE | Sonnet | Workers |
+| VERIFY | Opus | Reviewers |
+| COMPRESS | Haiku | Digest writer |
 
 Override per employee: `- ML Scientist, experiments [opus]`
 
@@ -153,27 +151,22 @@ Install manually for more:
 /plugin marketplace add obra/superpowers-marketplace
 /plugin marketplace add wshobson/agents
 /plugin marketplace add alirezarezvani/claude-skills
-npm i -g claude-mem
-npm i -g oh-my-claude-sisyphus
 ```
 
-When installed, employees MUST use them. Raw tools only when no skill matches the task.
+When installed, employees MUST use them.
 
 ## What Gets Created
 
 ```
 .company/
-  GOAL.md
-  STATUS.md
-  memory/{dept}.json
-  messages/{dept}.jsonl
-  cycles/
-    cycle-0-briefing.md
-    cycle-1-think-{dept}.md
-    cycle-1-review.md
-    cycle-1-advocate.md
-    cycle-1-briefing.md
-  {dept}/{employee}.md
+  criteria.json        Machine-checkable goal state
+  playbook.md          Accumulated lessons (self-improvement)
+  active-roster.md     Employees activated for this goal
+  active-tasks.md      Deduplicated task list
+  STATUS.md            Final report
+  cycles/              Per-cycle briefings and reviews
+  messages/            Typed findings per department
+  {dept}/              Per-employee findings (persist across sessions)
 ```
 
 ## Examples
