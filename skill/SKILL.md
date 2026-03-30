@@ -117,8 +117,10 @@ done 2>/dev/null | sort -u)
 echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
-echo "$INSTALLED" | grep -q "claude-mem\|thedotmack" || npm i -g claude-mem@latest 2>/dev/null || true
-echo "$INSTALLED" | grep -q "superpowers" || npm i -g @anthropic-community/superpowers@latest 2>/dev/null || true
+# Marketplace plugins (can't auto-install, detect if user added them)
+# User can install: /plugin marketplace add obra/superpowers-marketplace
+# User can install: /plugin marketplace add wshobson/agents
+# User can install: /plugin marketplace add alirezarezvani/claude-skills
 
 for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
@@ -168,7 +170,11 @@ echo "" && echo "📋 CYCLE {N} VERDICT: {DONE or NOT DONE}" && echo "{one line 
 
 ### Phase A, THINK (Opus, parallel)
 
-Launch all department leads in parallel. Each gets:
+**MANDATORY: Launch EVERY department lead from COMPANY.md in parallel. Not just CEO and CTO. ALL of them.** Parse COMPANY.md for every `## Department (Lead: Role)` header and launch that lead. Also launch the built-in roles (Internal Reviewer, Devil's Advocate, Elegance Enforcer, User Advocate) if they exist as separate departments.
+
+If COMPANY.md has 8 departments, launch 8 leads. If it has 3, launch 3. Never skip a department.
+
+Each lead gets:
 
 ```
 You are {ROLE} ({DEPT} department). Cycle {N}.
@@ -224,10 +230,14 @@ PREVIOUS WORK: {.company/{dept}/{worker-slug}.md if exists}
 INSTRUCTIONS:
 1. If a skill was assigned (not "raw"), you MUST invoke it via the Skill tool. Do NOT do the work manually.
 2. ONLY if skill is "raw", use raw tools (Read, Write, Bash, WebSearch).
-3. Write findings to .company/{dept}/{worker-slug}.md
+3. Write findings to .company/{dept}/{worker-slug}.md with MANDATORY format:
+   FINDING: {what you found}
+   SOURCE: {file path, URL, experiment output, or exact command that proves this}
+   CONFIDENCE: HIGH (measured), MEDIUM (extrapolated), LOW (estimated)
+   Any claim without a SOURCE will be REJECTED by reviewers.
 4. Rate finding 1-5.
 5. Append to .company/messages/{dept}.jsonl:
-   {"type":"finding","from":"{ROLE}","priority":N,"content":"summary"}
+   {"type":"finding","from":"{ROLE}","priority":N,"source":"{proof}","confidence":"{H/M/L}","content":"summary"}
 ```
 
 ### Phase C, VERIFY (Opus, sequential)
@@ -248,11 +258,19 @@ Read ALL of these:
 
 QUESTION: Has the goal been achieved? Check each success criterion.
 
+DOUBLE-VERIFICATION RULES:
+- Every finding MUST have a SOURCE field. Reject any without one.
+- For HIGH-priority findings (4-5), RE-RUN the experiment or RE-CHECK the source yourself.
+- If a finding says "24x compression", verify by reading the actual experiment output file.
+- If a finding cites a paper, verify the paper exists via WebSearch.
+- Any claim you cannot independently verify gets marked UNVERIFIED.
+
 Write to .company/cycles/cycle-{N}-review.md:
 For each criterion:
   CRITERION: {what was required}
   STATUS: MET / NOT MET / PARTIALLY MET
-  EVIDENCE: {what proves it}
+  EVIDENCE: {what proves it, with file path or URL}
+  VERIFIED: YES (I re-checked) / NO (could not verify)
   GAPS: {what's still missing}
 
 FINAL VERDICT: DONE or NOT DONE
