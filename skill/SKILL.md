@@ -72,8 +72,10 @@ Every finding MUST have:
 ```
 FINDING: what
 SOURCE: file/URL/command that proves it
+       OR "NOVEL - needs validation" for new ideas/techniques that don't exist yet
 ```
-No source = rejected by reviewer.
+Existing claims (numbers, papers, competitor data) need real sources.
+Novel ideas (new techniques, hypotheses, untested approaches) use "NOVEL - needs validation" and MUST be tested in the same or next cycle. The reviewer accepts novel sources but adds a criterion to criteria.json: "Validate novel technique X with experiment."
 
 ### VERIFY (Opus)
 
