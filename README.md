@@ -86,7 +86,7 @@ Installs globally. Works from any directory.
 
 ## Visual Indicators
 
-When the skill runs, you see progress as plain text:
+When the skill runs, you see:
 
 ```
 ════════════════════════════════════════════════
@@ -94,21 +94,21 @@ When the skill runs, you see progress as plain text:
 ════════════════════════════════════════════════
 
 ════════════════════════════════════════════════
-  🏢 CYCLE 1 - THINK > EXECUTE > VERIFY
+🏢 CYCLE 1 - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
-  📋 CYCLE 1 VERDICT: NOT DONE
-  Missing validation of compression ratios
+📋 CYCLE 1 VERDICT: NOT DONE
+Missing validation of compression ratios
 
 ════════════════════════════════════════════════
-  🏢 CYCLE 2 - THINK > EXECUTE > VERIFY
+🏢 CYCLE 2 - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
-  📋 CYCLE 2 VERDICT: DONE
-  All success criteria met
+📋 CYCLE 2 VERDICT: DONE
+All success criteria met
 ```
 
-Employees show with colors: leads (cyan), workers (green), reviewers (yellow), digest (gray).
+Employees show with colors: leads (cyan), workers (green), reviewers (yellow), digest (gray). Skills are mandatory when installed.
 
 ## Agents
 
