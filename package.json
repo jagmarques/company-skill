@@ -1,6 +1,6 @@
 {
   "name": "company-skill",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Goal-driven multi-employee company for Claude Code. Give it a goal, it runs until done.",
   "bin": {
     "company-skill": "./bin/install.js"
