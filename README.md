@@ -75,11 +75,24 @@ A minimal `/company "fix the login bug"` with no COMPANY.md runs: CEO + CTO + 2 
 ## Commands
 
 ```
-/company "Build X"     Run the company until X is done
-/company               Run using priorities from COMPANY.md
-/company status        Show last status without running
-/company resume        Continue from where last session stopped
+/company "Build X"      Run the company until X is done
+/company                Run using priorities from COMPANY.md
+/company:run "Build X"  Same as /company "Build X"
+/company:status         Show last status without running
+/company:resume         Continue from where last session stopped
 ```
+
+Installs globally. Works from any directory.
+
+## Agents
+
+| Agent | Phase | Color | Role |
+|-------|-------|-------|------|
+| company-lead | THINK | Blue | Department leads, deciding what to do |
+| company-worker | EXECUTE | Green | Employees doing the actual work |
+| company-reviewer | VERIFY | Yellow | Internal Reviewer, checking quality |
+| company-critic | VERIFY | Yellow | Devil's Advocate, finding holes |
+| company-digest | COMPRESS | Gray | Compresses output between cycles |
 
 ## Model Assignment
 
