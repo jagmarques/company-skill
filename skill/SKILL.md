@@ -91,9 +91,10 @@ echo "Installed: $INSTALLED"
 
 # Auto-install missing packs (all optional, failures don't block)
 echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
-echo "$INSTALLED" | grep -q "gsd" || npx -y gsd-install 2>/dev/null || true
-echo "$INSTALLED" | grep -q "superpowers" || (mkdir -p ~/.claude/skills/superpowers && curl -sL "https://raw.githubusercontent.com/obra/superpowers-marketplace/main/skills/superpowers/SKILL.md" -o ~/.claude/skills/superpowers/SKILL.md 2>/dev/null) || true
+echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
+# superpowers and wshobson/agents are marketplace plugins — detect but don't auto-install
+# User can add them manually: /plugin marketplace add obra/superpowers-marketplace
 
 # Final detection
 echo "=== Available ==="

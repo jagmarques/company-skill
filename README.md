@@ -1,149 +1,138 @@
 # Company
 
-A Claude Code skill that turns a markdown org chart into a running multi-agent company.
+A Claude Code skill that turns a markdown org chart into a running multi-employee company.
 
-```
-COMPANY.md  →  /company  →  THINK → EXECUTE → COMPRESS → loop
-```
+Write your team structure in `COMPANY.md`. Type `/company`. Every department activates, employees do their work, and you get a status report of what was accomplished.
 
-## The Problem
+## Install
 
-You want your whole team working together. But shared context explodes tokens, agents go stale, and communication is chaos.
-
-## How It Works
-
-Three tiers running in feedback loops:
-
-```
-THINK  (Opus)    Leads decide what to do, critics review
-   ↓
-EXECUTE (Sonnet)  Workers do the work, use installed skills
-   ↓
-COMPRESS (Haiku)  Summarize everything into next cycle's briefing
-   ↓
-   └──── loop back to THINK with new knowledge
-```
-
-Each cycle, ALL agents run. Findings from cycle 1 feed cycle 2. Quality rejections trigger rework. Scout alerts cause pivots. Default: 3 cycles per session.
-
-## Quick Start
-
-Install:
 ```bash
-cp -r skill/ .claude/skills/company/
+curl -sL https://raw.githubusercontent.com/jagmarques/company-skill/main/install.sh | bash
 ```
 
-Write `COMPANY.md`:
-```markdown
-# My Team
+This installs the skill and creates a `COMPANY.md` template. Edit it with your team, then:
 
-## Engineering (Lead: CTO)
-- CTO — architecture, code review
-- Backend Dev — API, database
-- Frontend Dev — UI, components
-
-## Quality (Lead: QA Lead)
-- QA Lead — test strategy
-- Security Reviewer — vulnerability audits
-
-## Priorities
-1. [URGENT] Fix checkout bug
-2. [IMPORTANT] Add caching layer
-
-## Rules
-- No deploy without QA Lead sign-off
-```
-
-Run:
 ```
 /company
 ```
 
-On first run, the skill auto-installs available skill packs (gstack, GSD, superpowers, trailofbits) so agents can use `/review`, `/investigate`, `/ship`, `/qa` etc. Installs are optional — everything works with raw tools too.
+## How It Works
 
-## Agent Communication
+The company runs in cycles. Each cycle has three phases:
 
-Agents don't share context. They share files:
+**THINK** — Department leads (Opus) read the priorities, review previous findings, and assign tasks to their team members.
 
-- **Messages** — typed JSON in `.company/messages/{dept}.jsonl` with priority ratings
-- **Briefings** — compressed summary between cycles in `.company/cycles/`
-- **Memory** — persistent findings in `.company/memory/{dept}.json` (survives across sessions)
-- **Reports** — per-worker findings in `.company/{dept}/{worker}.md`
+**EXECUTE** — Team members (Sonnet) do the actual work: research, code, review, scan. They use installed skills like `/review`, `/investigate`, `/qa` when available.
 
-Each agent reads only: its task, its department's memory, and the cycle briefing. Context stays small.
+**COMPRESS** — A digest writer (Haiku) reads everything that happened and creates a briefing for the next cycle. Only important findings carry forward in full. Routine updates get one line.
 
-## Model Tiers
+This repeats for 3 cycles. Each cycle builds on the last — research findings inform engineering, quality rejections trigger rework, scout alerts cause strategy pivots.
 
-| Tier | Model | Who |
-|------|-------|-----|
-| THINK | Opus | Leads, critics, strategists |
-| EXECUTE | Sonnet | Workers, engineers, researchers, scouts |
+## Write Your Company
+
+Edit `COMPANY.md`:
+
+```markdown
+# My Company
+
+## Executive (Lead: CEO)
+- CEO — strategy, priorities, conflict resolution
+- CTO — technical decisions, architecture
+
+## Engineering (Lead: CTO)
+- Backend Developer — API, database
+- Frontend Developer — UI, components
+- DevOps Engineer — CI/CD, monitoring
+
+## Quality (Lead: QA Lead)
+- QA Lead — test strategy, release sign-off
+- Security Reviewer — vulnerability analysis
+
+## Priorities
+1. [URGENT] Fix checkout payment bug
+2. [IMPORTANT] Add user dashboard
+3. [RESEARCH] Evaluate caching options
+
+## Rules
+- No deploy without QA Lead sign-off
+- Security Reviewer must approve auth changes
+```
+
+Add as many departments and employees as you need. The skill handles any size.
+
+## Model Assignment
+
+| Phase | Model | Who |
+|-------|-------|-----|
+| THINK | Opus | Leads, critics, strategists, CEO |
+| EXECUTE | Sonnet | Engineers, researchers, scouts, designers |
 | COMPRESS | Haiku | Digest writer between cycles |
 
-Override any role with `[opus]`, `[sonnet]`, or `[haiku]` tags in COMPANY.md.
+Override per employee with `[opus]`, `[sonnet]`, or `[haiku]` tags:
 
-## Auto-Installed Skills
+```markdown
+- ML Scientist — critical experiments [opus]
+- Data Entry — log processing [haiku]
+```
 
-On first run, the skill installs what's available:
+## Installed Skills
 
-| Pack | Skills | Source |
-|------|--------|--------|
-| gstack | /review, /ship, /qa, /investigate, /browse, /office-hours | npx gstack |
-| GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work | npx gsd-install |
-| superpowers | /brainstorm, /write-plan, /execute-plan | obra/superpowers-marketplace |
-| trailofbits | Security audit, vulnerability detection | trailofbits/skills |
+On first run, the skill installs available toolkits so employees can use them:
 
-Also detects marketplace plugins if installed: wshobson/agents, alirezarezvani/claude-skills, oh-my-claudecode.
+| Pack | What employees get |
+|------|-------------------|
+| gstack | /review, /ship, /qa, /investigate, /browse, /office-hours |
+| GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work |
+| trailofbits | Security audit, vulnerability detection |
 
-All optional. Agents fall back to raw tools if nothing installs.
+Also detects marketplace plugins (superpowers, wshobson/agents, oh-my-claudecode) if installed.
+
+All optional. Employees fall back to raw tools if nothing is available.
+
+## Communication
+
+Employees don't share context with each other. They communicate through files:
+
+**Messages** — Each employee writes typed findings to `.company/messages/{dept}.jsonl` with a priority rating (1-5). Only priority 3+ messages reach other departments.
+
+**Briefings** — Between cycles, the digest writer compresses all output into a single briefing file. This is the only thing that carries forward.
+
+**Memory** — Important findings persist in `.company/memory/{dept}.json` across sessions. Next time you run `/company`, employees pick up where they left off.
 
 ## What Gets Created
 
 ```
 .company/
-├── PRIORITIES.md             # What's being worked on
-├── STATUS.md                 # Final synthesis
-├── memory/
-│   ├── research.json         # Persistent findings (across sessions)
-│   └── engineering.json
-├── messages/
-│   ├── research.jsonl        # Typed messages with priority
-│   └── quality.jsonl
-├── cycles/
-│   ├── cycle-0-briefing.md   # Starting state
-│   ├── cycle-1-think-*.md    # Lead decisions
-│   ├── cycle-1-briefing.md   # Compressed digest
-│   └── ...
-└── {department}/
-    ├── {worker}.md           # Individual findings (persist)
-    └── ...
+  PRIORITIES.md
+  STATUS.md
+  memory/
+    research.json
+    engineering.json
+  messages/
+    research.jsonl
+    quality.jsonl
+  cycles/
+    cycle-0-briefing.md
+    cycle-1-think-research.md
+    cycle-1-briefing.md
+  research/
+    ml-scientist.md
+  engineering/
+    backend-developer.md
 ```
 
 ## Incremental Sessions
 
-Next session, `/company` reads STATUS.md + memory/ + latest briefing and resumes. No work is lost. Workers check previous findings before re-researching.
+Run `/company` again next session. It reads the previous status, memory, and latest briefing. Departments with no new work are skipped. Employees check their previous findings before re-researching.
 
 ## Examples
 
-| File | Description |
-|------|-------------|
+| File | Team |
+|------|------|
 | [`startup.md`](examples/startup.md) | 10-person startup |
-| [`research-lab.md`](examples/research-lab.md) | Academic group |
-| [`dev-team.md`](examples/dev-team.md) | Dev sprint team |
+| [`research-lab.md`](examples/research-lab.md) | Academic research group |
+| [`dev-team.md`](examples/dev-team.md) | Software development team |
 | [`nexusquant.md`](examples/nexusquant.md) | Full AI research company |
-
-## Why Not CrewAI / AutoGen / Ruflo?
-
-| | Company | CrewAI | AutoGen | Ruflo |
-|---|---|---|---|---|
-| Config | Markdown | Python | Python | TypeScript+YAML |
-| Install | Copy 1 file | pip + deps | pip + deps | npm + WASM |
-| Runs in | Claude Code | Own process | Own process | Own process |
-| Communication | File blackboard | Direct msgs | Group chat | MCP namespace |
-| Context/agent | <3K tokens | Shared | Shared | Isolated |
-| Persistence | Memory + findings | None | None | SQLite |
-| Skills | Auto-installs gstack/GSD/etc | None | None | Built-in |
-| Feedback loop | THINK→EXECUTE→COMPRESS | Sequential | Group debate | Queen coordinator |
 
 ## License
 
