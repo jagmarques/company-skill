@@ -1,17 +1,17 @@
-# Research Lab — Academic Group
+# Research Lab, Academic Group
 
 ## Theory (Lead: Principal Investigator)
-- Principal Investigator — research direction, paper strategy
-- Postdoc A — core algorithm design, proofs
-- Postdoc B — experiments, benchmarks
-- PhD Student — literature review, implementation
+- Principal Investigator, research direction, paper strategy
+- Postdoc A, core algorithm design, proofs
+- Postdoc B, experiments, benchmarks
+- PhD Student, literature review, implementation
 
 ## Review (Lead: Internal Reviewer)
-- Internal Reviewer — methodology validation, statistical checks
-- Writing Coach — prose quality, clarity, structure
+- Internal Reviewer, methodology validation, statistical checks
+- Writing Coach, prose quality, clarity, structure
 
 ## Scouts (Lead: Literature Scout)
-- Literature Scout — daily arxiv scan, related work tracking
+- Literature Scout, daily arxiv scan, related work tracking
 
 ## Priorities
 1. [URGENT] Finish experiments for ICML deadline
