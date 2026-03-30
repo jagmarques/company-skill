@@ -141,7 +141,7 @@ On first run, auto-installs available toolkits:
 | GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work |
 | trailofbits | Security audit, vulnerability detection |
 
-All optional. Falls back to raw tools.
+When installed, employees MUST use them. Raw tools only when no skill matches the task.
 
 ## What Gets Created
 
