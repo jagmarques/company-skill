@@ -35,7 +35,7 @@ GOAL: "Build the auth system"
   Done? Write STATUS.md, report to user.
 ```
 
-No arbitrary limit. The loop runs until the objective is verified done.
+No arbitrary limit. The loop runs until ALL criteria in `criteria.json` pass. A Stop Hook blocks Claude from exiting early. To cancel: `touch .company/CANCEL`.
 
 ## Built-In Roles
 

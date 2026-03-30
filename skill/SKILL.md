@@ -146,16 +146,45 @@ mkdir -p .company/cycles .company/messages .company/memory
 grep -q "^\.company/" .gitignore 2>/dev/null || echo ".company/" >> .gitignore 2>/dev/null || true
 ```
 
-Write `.company/GOAL.md`:
+Write `.company/GOAL.md` with STRUCTURED checkable criteria (not free text):
 ```markdown
 # Goal
 {the user's goal}
 
 # Success Criteria
-{inferred from the goal, what does "done" look like?}
+Each criterion MUST be a yes/no checkable statement. No vague language.
+
+- [ ] {specific measurable criterion 1}
+- [ ] {specific measurable criterion 2}
+- [ ] {specific measurable criterion 3}
+
+Bad examples (REJECT these):
+- "Code is clean" (vague)
+- "Performance is good" (not measurable)
+- "Implementation is complete" (not checkable)
+
+Good examples:
+- "Function X returns Y when given input Z"
+- "Compression ratio > 20x measured with honest byte counting"
+- "All tests pass with 0 failures"
+- "README has install instructions that work on a fresh machine"
 ```
 
-Write `.company/cycles/cycle-0-briefing.md` with: goal, success criteria, team structure, rules, any previous state.
+Write `.company/criteria.json` (machine-checkable state):
+```json
+{
+  "goal": "{the user's goal}",
+  "criteria": [
+    {"id": 1, "description": "{criterion 1}", "passes": false, "evidence": null},
+    {"id": 2, "description": "{criterion 2}", "passes": false, "evidence": null},
+    {"id": 3, "description": "{criterion 3}", "passes": false, "evidence": null}
+  ]
+}
+```
+
+The loop ONLY exits when ALL criteria have `"passes": true` with non-null evidence.
+
+Write `.company/cycles/cycle-0-briefing.md` with: goal, criteria, team structure, rules, any previous state.
 
 ## Step 4: Run Loop (repeat until verified)
 
@@ -251,33 +280,30 @@ This is what makes the loop work. Launch TWO built-in reviewers:
 ```
 You are the Internal Reviewer. Cycle {N} just completed.
 
-GOAL: {from .company/GOAL.md}
-SUCCESS CRITERIA: {from .company/GOAL.md}
+Read .company/criteria.json and ALL .company/messages/*.jsonl and .company/{dept}/*.md findings.
 
-Read ALL of these:
-- All .company/messages/*.jsonl from this cycle
-- All .company/{dept}/*.md employee findings
-- Any code changes (git diff if applicable)
+VERIFICATION RULES:
+- For EACH criterion in criteria.json with "passes": false, check if this cycle produced evidence.
+- Every finding MUST have a SOURCE field. REJECT any finding without one.
+- For priority 4-5 findings, RE-RUN the experiment or RE-CHECK the source file yourself.
+- If a number is claimed, read the actual output file that produced it.
+- Any claim you cannot independently verify: mark UNVERIFIED.
 
-QUESTION: Has the goal been achieved? Check each success criterion.
-
-DOUBLE-VERIFICATION RULES:
-- Every finding MUST have a SOURCE field. Reject any without one.
-- For HIGH-priority findings (4-5), RE-RUN the experiment or RE-CHECK the source yourself.
-- If a finding says "24x compression", verify by reading the actual experiment output file.
-- If a finding cites a paper, verify the paper exists via WebSearch.
-- Any claim you cannot independently verify gets marked UNVERIFIED.
+UPDATE .company/criteria.json:
+- For each criterion where evidence now exists, set "passes": true, fill "evidence" with proof.
+- If no evidence, keep "passes": false.
 
 Write to .company/cycles/cycle-{N}-review.md:
 For each criterion:
-  CRITERION: {what was required}
-  STATUS: MET / NOT MET / PARTIALLY MET
-  EVIDENCE: {what proves it, with file path or URL}
-  VERIFIED: YES (I re-checked) / NO (could not verify)
-  GAPS: {what's still missing}
+  ID: {from criteria.json}
+  DESCRIPTION: {criterion}
+  PASSES: true/false
+  EVIDENCE: {file path, URL, or command output}
+  VERIFIED: YES/NO
 
-FINAL VERDICT: DONE or NOT DONE
-If NOT DONE: list exactly what the next cycle must fix.
+FINAL VERDICT:
+- If ALL criteria in criteria.json have "passes": true with non-null evidence: DONE
+- If ANY has "passes": false: NOT DONE, list exactly what next cycle must do
 ```
 
 **Devil's Advocate:**
