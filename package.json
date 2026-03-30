@@ -1,0 +1,15 @@
+{
+  "name": "company-skill",
+  "version": "1.0.0",
+  "description": "Goal-driven multi-employee company for Claude Code. Give it a goal, it runs until done.",
+  "bin": {
+    "company-skill": "./bin/install.js"
+  },
+  "keywords": ["claude-code", "skill", "multi-agent", "company", "orchestration"],
+  "author": "jagmarques",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jagmarques/company-skill.git"
+  }
+}
