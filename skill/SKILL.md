@@ -240,7 +240,11 @@ Launch Haiku digest writer to compress cycle output into next briefing.
 Then check:
 - Reviewer says DONE **AND** Advocate says ACCEPT → **EXIT LOOP**
 - Either says NOT DONE / CHALLENGE → **inject their feedback into next cycle's briefing, continue**
-- Reached max 5 iterations → **EXIT with partial status**
+
+No arbitrary iteration limit. The loop runs until the goal is verified done.
+The only reasons to stop early:
+- Context window approaching limit → compact and continue
+- User presses Ctrl+C → save state to STATUS.md for /company resume
 
 ## Step 5: Final Report
 
@@ -300,7 +304,8 @@ Failed employees get logged and skipped. After 3 consecutive failures, flagged t
 
 ## Safety
 
-- Max 5 iterations (prevents infinite loops)
-- Each iteration has THINK + EXECUTE + VERIFY (3 phases)
+- No arbitrary loop limit, runs until the objective is done
 - Built-in Reviewer + Advocate prevent premature "done" claims
-- All work persists in `.company/`, nothing is lost if the loop stops
+- If context window gets tight, compact and continue
+- If user stops (Ctrl+C), state saves to STATUS.md for `/company resume`
+- All work persists in `.company/`, nothing is lost

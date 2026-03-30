@@ -29,7 +29,7 @@ GOAL: "Build the auth system"
   Done? Write STATUS.md, report to user.
 ```
 
-The loop runs up to 5 iterations. Each cycle builds on the last.
+No arbitrary limit. The loop runs until the objective is verified done.
 
 ## Built-In Roles
 
