@@ -82,7 +82,13 @@ Read the user's goal from the command argument or their message.
 for f in COMPANY.md company.md; do [ -f "$f" ] && echo "FOUND: $f" && break; done
 ```
 
-Parse COMPANY.md for departments, roles, priorities, rules. If no COMPANY.md exists, create a minimal company: CEO + one department matching the goal type (engineering for code, research for analysis, etc.) + the two built-in reviewers.
+Parse COMPANY.md for departments, roles, priorities, rules. If no COMPANY.md exists, create a minimal company: CEO + one department matching the goal type (engineering for code, research for analysis, etc.) + the built-in reviewers.
+
+**Parsing rules:**
+- Roles are `- ` lines that appear UNDER department headers (`## Department Name`)
+- Lines under `## Priorities`, `## Rules`, `## Communication`, `## Protocol` are NOT roles
+- Stop collecting roles when hitting the next `##` header
+- A role line typically has a name followed by a comma and description: `- Role Name, description`
 
 Classify roles:
 - **THINK (Opus):** lead, director, chief, CEO, CTO, principal, architect, strategist
