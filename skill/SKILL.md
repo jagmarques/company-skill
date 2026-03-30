@@ -44,7 +44,7 @@ GOAL: "{what the user asked for}"
          ── YES: write STATUS.md, report to user
 ```
 
-The loop does NOT stop until VERIFY says the goal is met, or max 5 iterations.
+The loop does NOT stop until VERIFY confirms the goal is met.
 
 ## Built-In Roles (Always Active)
 
@@ -59,11 +59,11 @@ If the user already defined any of these roles, the built-in version merges with
 ### Quality Gate (VERIFY phase)
 **Internal Reviewer**, Reviews all work after each cycle. Checks: is it correct? Does it address the goal? Are there bugs or gaps? Grades each success criterion as MET / NOT MET / PARTIALLY MET.
 
+**User Advocate**, "Would a real user understand this? Is the API ugly? Does the README make sense in 10 seconds?" Represents the end user who doesn't care about internals.
+
 **Devil's Advocate**, Attacks every result. "What could go wrong? What did we miss? Would an external expert accept this?" Only satisfied when there are zero remaining holes.
 
 **Elegance Enforcer**, "Can this be simpler? Is there unnecessary complexity? Does every component justify its existence?" Prevents over-engineering.
-
-**User Advocate**, "Would a real user understand this? Is the API ugly? Does the README make sense in 10 seconds?" Represents the end user who doesn't care about internals.
 
 ### Deduplication Rule
 When parsing COMPANY.md, check if the user defined roles matching these built-ins:
