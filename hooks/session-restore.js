@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Restore company state after compaction/resume. Injects context via systemMessage.
+// Restore company state after compaction. Reads the checkpoint with reasoning + state.
 
 const fs = require('fs');
 const path = require('path');
@@ -8,27 +8,23 @@ const path = require('path');
 const companyDir = path.join(process.cwd(), '.company');
 if (!fs.existsSync(companyDir)) process.exit(0);
 
-const checkpointPath = path.join(companyDir, '.checkpoint.json');
-if (!fs.existsSync(checkpointPath)) process.exit(0);
+const checkpointMd = path.join(companyDir, '.checkpoint.md');
+const checkpointJson = path.join(companyDir, '.checkpoint.json');
 
-try {
-  const cp = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
-  const msg = [
-    "[COMPANY RESTORED] Session was compacted. Resuming.",
-    "Goal: " + (cp.goal || "unknown"),
-    "Cycle: " + (cp.cycle || 0),
-    "Criteria: " + (cp.passing || 0) + "/" + (cp.total || 0) + " passing",
-  ];
+let msg = null;
 
-  if (cp.failing && cp.failing.length > 0) {
-    msg.push("Failing: " + cp.failing.join(", "));
-  }
+if (fs.existsSync(checkpointMd)) {
+  msg = fs.readFileSync(checkpointMd, 'utf8').substring(0, 2000);
+} else if (fs.existsSync(checkpointJson)) {
+  try {
+    const cp = JSON.parse(fs.readFileSync(checkpointJson, 'utf8'));
+    msg = "[COMPANY RESTORED] Goal: " + (cp.goal || "unknown") +
+      ", Cycle: " + (cp.cycle || 0) +
+      ", Criteria: " + (cp.passing || 0) + "/" + (cp.total || 0) +
+      ". Read .company/criteria.json and continue.";
+  } catch (e) {}
+}
 
-  msg.push("Read .company/criteria.json and continue THINK > EXECUTE > VERIFY.");
-
-  console.log(JSON.stringify({
-    systemMessage: msg.join("\n")
-  }));
-} catch (e) {
-  process.exit(0);
+if (msg) {
+  console.log(JSON.stringify({ systemMessage: msg }));
 }
