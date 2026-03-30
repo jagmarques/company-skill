@@ -444,6 +444,41 @@ Then reassigns employees:
 This means the company structure CHANGES during execution, not just between sessions.
 COMPANY.md gets updated in real-time as the company learns what it needs.
 
+### Contrastive Insights
+
+Every FAILED approach MUST be linked to a WORKING alternative in lessons:
+```
+FAILED: Variable-rate E8 (+3.67% PPL)
+WORKS INSTEAD: Fixed-rate E8 (-0.05% PPL)
+WHY: Energy is not a reliable proxy for importance
+```
+Not just "don't do X" but "do Y instead because Z." The VERIFY phase writes these.
+
+### Optimization Tips
+
+Track inefficient successes, not just failures:
+```
+INEFFICIENT: Spent 3 cycles on synthetic data before trying real KV
+LESSON: Test on real data first, synthetic second
+```
+CEO adds 1-3 optimization tips to playbook.md after each session.
+
+### Meta-Audit
+
+At END of every session, CEO asks:
+1. Did Reviewer catch a real issue? If not, review process needs fixing.
+2. Did Devil's Advocate find a genuine hole? If not, sharper prompts needed.
+3. Did anyone read lessons.md before starting? If not, self-improvement isn't working.
+4. Did any employee get hired/fired? If not, company isn't adapting.
+Write results to `.company/meta-audit.md`.
+
+### Skill Evolution
+
+Employees don't just get hired/fired. Their DESCRIPTIONS change based on what works:
+- If "Lattice Mathematician" keeps producing breakthroughs on entropy coding, update their description to include "entropy coding specialist"
+- If "CTO" keeps finding bugs in experiments, add "experiment validation" to their role
+- Employee skills evolve to match what the goal actually needs
+
 Report to user. If goal was achieved, suggest next steps. If not, explain what's blocking.
 
 ## Commands
