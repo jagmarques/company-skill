@@ -24,7 +24,9 @@ allowed-tools:
 Output this text directly (NOT via Bash, just print it as your response):
 
 ```
-🏢 COMPANY SKILL ACTIVE
+════════════════════════════════════════════════
+  🏢 COMPANY SKILL ACTIVE
+════════════════════════════════════════════════
 ```
 
 Then check if COMPANY.md exists and report how many roles were found.
