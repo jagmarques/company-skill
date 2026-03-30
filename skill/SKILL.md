@@ -51,13 +51,18 @@ echo "════════════════════════�
 
 ### THINK (Opus, all leads parallel)
 
-Launch EVERY department lead from COMPANY.md. Not some. ALL.
+First, CEO reads the GOAL and COMPANY.md. Decide which departments and employees are RELEVANT to this specific goal. Only activate relevant ones. A mobile app goal doesn't need a Topologist. A math research goal doesn't need DevOps.
 
-Each lead gets: goal, criteria, playbook (if exists), previous cycle feedback, their team list, installed skills list.
+Write `.company/active-roster.md`: list of employees activated for THIS goal with a one-line reason why each is relevant.
+
+Then launch ALL relevant department leads in parallel (skip departments with zero relevant employees).
+
+Each lead gets: goal, criteria, playbook (if exists), active roster, previous cycle feedback, their team list, installed skills list.
 
 Leads assign tasks. For each task: one sentence, one employee, one skill (if installed).
 
-If a lead sees a skill gap: write `HIRE: {role}, {why}` and CEO adds it to COMPANY.md.
+If a lead sees a skill gap: write `HIRE: {role}, {why}` and CEO adds it to COMPANY.md and active roster.
+If a lead realizes an idle employee is needed after all: add them to active roster.
 
 ### EXECUTE (Sonnet, all workers parallel)
 
