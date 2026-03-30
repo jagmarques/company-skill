@@ -21,15 +21,9 @@ allowed-tools:
 
 ## Preamble (run first, always)
 
-Output this text directly (NOT via Bash, just print it as your response):
-
+```bash
+echo "════════════════════════════════════════════════" && echo "             🏢 COMPANY SKILL ACTIVE" && echo "════════════════════════════════════════════════" && echo "" && ([ -f COMPANY.md ] && echo "$(grep -c '^[0-9]\|^- ' COMPANY.md 2>/dev/null) roles found" || echo "No COMPANY.md, will auto-create")
 ```
-════════════════════════════════════════════════
-             🏢 COMPANY SKILL ACTIVE
-════════════════════════════════════════════════
-```
-
-Then check if COMPANY.md exists and report how many roles were found.
 
 Give it a goal. It runs the entire company in loops until the goal is verified done.
 
@@ -150,19 +144,16 @@ Write `.company/cycles/cycle-0-briefing.md` with: goal, success criteria, team s
 
 ## Step 4: Run Loop (repeat until verified)
 
-At the START of each cycle, output this text directly (NOT via Bash):
+At the START of each cycle, run this Bash command (replace {N} with the cycle number):
 
-```
-════════════════════════════════════════════════
-  🏢 CYCLE {N} - THINK > EXECUTE > VERIFY
-════════════════════════════════════════════════
+```bash
+echo "" && echo "════════════════════════════════════════════════" && echo "🏢 CYCLE {N} - THINK > EXECUTE > VERIFY" && echo "════════════════════════════════════════════════"
 ```
 
-At the END of each VERIFY phase, output:
+At the END of each VERIFY phase, run:
 
-```
-  📋 CYCLE {N} VERDICT: {DONE or NOT DONE}
-  {one line reason from Reviewer}
+```bash
+echo "" && echo "📋 CYCLE {N} VERDICT: {DONE or NOT DONE}" && echo "{one line reason from Reviewer}"
 ```
 
 ### Phase A, THINK (Opus, parallel)
