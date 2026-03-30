@@ -19,6 +19,19 @@ allowed-tools:
 
 # /company, Goal-Driven Multi-Employee Company
 
+## Preamble (run first, always)
+
+```bash
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║           🏢 COMPANY SKILL ACTIVE            ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+echo "Reading COMPANY.md..."
+[ -f COMPANY.md ] && echo "Team: $(grep -c '^[0-9]\|^- ' COMPANY.md 2>/dev/null) roles found" || echo "No COMPANY.md found, will auto-create"
+echo ""
+```
+
 Give it a goal. It runs the entire company in loops until the goal is verified done.
 
 ```
@@ -137,6 +150,23 @@ Write `.company/GOAL.md`:
 Write `.company/cycles/cycle-0-briefing.md` with: goal, success criteria, team structure, rules, any previous state.
 
 ## Step 4: Run Loop (repeat until verified)
+
+At the START of each cycle, print:
+```bash
+echo ""
+echo "════════════════════════════════════════════════"
+echo "  🏢 CYCLE {N} — THINK → EXECUTE → VERIFY"
+echo "════════════════════════════════════════════════"
+echo ""
+```
+
+At the END of each VERIFY phase, print the verdict:
+```bash
+echo ""
+echo "  📋 CYCLE {N} VERDICT: {DONE or NOT DONE}"
+echo "  {one line reason from Reviewer}"
+echo ""
+```
 
 ### Phase A, THINK (Opus, parallel)
 
