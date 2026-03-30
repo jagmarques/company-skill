@@ -90,6 +90,12 @@ echo "📋 CYCLE {N} VERDICT: {DONE or NOT DONE}" && echo "{reason}"
 ALL criteria pass + Advocate accepts = EXIT.
 Otherwise = loop with feedback.
 
+Between cycles: if context is getting long (3+ cycles), run `/compact` to free space before next THINK phase.
+
+### Task Deduplication
+
+Before EXECUTE, CEO reads all task assignments from all leads. If two employees got the same task, remove the duplicate. Write `.company/active-tasks.md` with one task per line so nobody works on the same thing.
+
 ## After Done
 
 Write STATUS.md. Then update `.company/playbook.md`:
