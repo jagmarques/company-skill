@@ -21,9 +21,19 @@ allowed-tools:
 
 Give it a goal. Run every employee. Loop until verified done.
 
-## Preamble
+## Preamble (MUST run first, before anything else)
 
-Print this as plain text (NOT Bash):
+Step 1: Install skills. Run this Bash block IMMEDIATELY:
+
+```bash
+INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do [ -f "$d" ] && basename "$(dirname "$d")"; done 2>/dev/null | sort -u)
+echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
+echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
+echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
+echo "Skills: $(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do [ -f "$d" ] && basename "$(dirname "$d")"; done 2>/dev/null | sort -u | tr '\n' ' ')"
+```
+
+Step 2: Print banner as plain text (NOT Bash):
 
 ════════════════════════════════════════════════
              🏢 COMPANY SKILL ACTIVE
@@ -128,15 +138,7 @@ Deduplicated if user defines them in COMPANY.md.
 
 ## Skills
 
-```bash
-INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do [ -f "$d" ] && basename "$(dirname "$d")"; done 2>/dev/null | sort -u)
-echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
-echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
-echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
-for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do [ -f "$d" ] && basename "$(dirname "$d")"; done 2>/dev/null | sort -u
-```
-
-When installed: MUST use /review for code review, /investigate for bugs, /qa for testing, /ship for PRs.
+When installed: MUST use /review for code review, /investigate for bugs, /qa for testing, /ship for PRs. Skills are installed in the Preamble.
 
 ## Stop Hook
 
