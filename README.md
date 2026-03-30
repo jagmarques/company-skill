@@ -1,9 +1,9 @@
 # Company
 
-A Claude Code skill that turns a markdown org chart into a running multi-agent system.
+A Claude Code skill that turns a markdown org chart into a running multi-agent company.
 
 ```
-COMPANY.md  →  /company  →  waves of parallel agents  →  unified status
+COMPANY.md  →  /company  →  THINK → EXECUTE → COMPRESS → loop
 ```
 
 ## The Problem
@@ -12,36 +12,28 @@ You want your whole team working together. But shared context explodes tokens, a
 
 ## How It Works
 
+Three tiers running in feedback loops:
+
 ```
-Wave 1: Department Leads (parallel)          ← 5-6 agents
-    ↓ typed messages + reports
-Wave 2: Workers for urgent priorities        ← 3-4 per lead, on-demand
-    ↓ typed messages + findings
-Wave 3: Quality review                       ← 2-3 reviewers
-    ↓ verdicts (approved / vetoed)
-Wave 4: CEO synthesis                        ← you
-```
-
-Each wave starts fresh. Agents in Wave 2 don't inherit Wave 1's context — they read only their task and previous findings. Context stays under 3000 tokens per agent.
-
-Agents communicate through **typed JSON messages**, not free text:
-
-```json
-{"type": "finding", "from": "ML Scientist", "priority": 4, "content": "E8 lattice compresses 3.7x better than scalar"}
-{"type": "blocker", "from": "Chief Critic", "priority": 5, "content": "MP threshold fails on correlated data"}
-{"type": "threat", "from": "GitHub Scout", "priority": 5, "content": "Competitor repo appeared today"}
+THINK  (Opus)    Leads decide what to do, critics review
+   ↓
+EXECUTE (Sonnet)  Workers do the work, use installed skills
+   ↓
+COMPRESS (Haiku)  Summarize everything into next cycle's briefing
+   ↓
+   └──── loop back to THINK with new knowledge
 ```
 
-Agents filter by priority >= 3. Low-priority noise never enters their context.
+Each cycle, ALL agents run. Findings from cycle 1 feed cycle 2. Quality rejections trigger rework. Scout alerts cause pivots. Default: 3 cycles per session.
 
 ## Quick Start
 
+Install:
 ```bash
 cp -r skill/ .claude/skills/company/
 ```
 
 Write `COMPANY.md`:
-
 ```markdown
 # My Team
 
@@ -67,69 +59,91 @@ Run:
 /company
 ```
 
-## Key Patterns
+On first run, the skill auto-installs available skill packs (gstack, GSD, superpowers, trailofbits) so agents can use `/review`, `/investigate`, `/ship`, `/qa` etc. Installs are optional — everything works with raw tools too.
 
-### Waves, Not Swarm (from oh-my-claudecode)
-Agents run in sequential waves, not all at once. Each wave's output is compressed into files that feed the next wave. Context resets between waves.
+## Agent Communication
 
-### Typed Messages (from Overstory)
-13 message types (finding, question, result, blocker, threat, veto, etc.) with priority levels. Agents read only high-priority messages. Low-value noise gets filtered before it enters any context.
+Agents don't share context. They share files:
 
-### Adaptive Output Budget
-Workers self-rate findings 1-5 and write proportionally:
+- **Messages** — typed JSON in `.company/messages/{dept}.jsonl` with priority ratings
+- **Briefings** — compressed summary between cycles in `.company/cycles/`
+- **Memory** — persistent findings in `.company/memory/{dept}.json` (survives across sessions)
+- **Reports** — per-worker findings in `.company/{dept}/{worker}.md`
 
-| Rating | Budget |
-|--------|--------|
-| 1 Nothing new | 50 words |
-| 3 Useful finding | 400 words |
-| 5 Breakthrough | 1500 words |
+Each agent reads only: its task, its department's memory, and the cycle briefing. Context stays small.
 
-No tokens wasted on low-value output.
+## Model Tiers
 
-### Agent Dropout (from ACL 2025)
-Track which workers produce high-priority findings. On repeat runs, auto-skip workers that produced nothing useful. 21.6% token savings with improved quality.
+| Tier | Model | Who |
+|------|-------|-----|
+| THINK | Opus | Leads, critics, strategists |
+| EXECUTE | Sonnet | Workers, engineers, researchers, scouts |
+| COMPRESS | Haiku | Digest writer between cycles |
 
-### Context Hygiene (from agent_farm)
-Each agent gets ONLY: its task, its previous findings, relevant messages (priority >= 3), and rules. Never the full conversation. Under 3000 tokens input per agent.
+Override any role with `[opus]`, `[sonnet]`, or `[haiku]` tags in COMPANY.md.
+
+## Auto-Installed Skills
+
+On first run, the skill installs what's available:
+
+| Pack | Skills | Source |
+|------|--------|--------|
+| gstack | /review, /ship, /qa, /investigate, /browse, /office-hours | npx gstack |
+| GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work | npx gsd-install |
+| superpowers | /brainstorm, /write-plan, /execute-plan | obra/superpowers-marketplace |
+| trailofbits | Security audit, vulnerability detection | trailofbits/skills |
+
+Also detects marketplace plugins if installed: wshobson/agents, alirezarezvani/claude-skills, oh-my-claudecode.
+
+All optional. Agents fall back to raw tools if nothing installs.
 
 ## What Gets Created
 
 ```
 .company/
-├── PRIORITIES.md
-├── STATUS.md
+├── PRIORITIES.md             # What's being worked on
+├── STATUS.md                 # Final synthesis
+├── memory/
+│   ├── research.json         # Persistent findings (across sessions)
+│   └── engineering.json
 ├── messages/
-│   ├── engineering.jsonl     ← typed JSON messages
-│   ├── quality.jsonl
-│   └── research.jsonl
-├── engineering/
-│   ├── REPORT.md             ← lead's synthesis
-│   ├── backend-dev.md        ← worker findings (persist)
-│   └── frontend-dev.md
-└── quality/
-    ├── REPORT.md
-    └── security-reviewer.md
+│   ├── research.jsonl        # Typed messages with priority
+│   └── quality.jsonl
+├── cycles/
+│   ├── cycle-0-briefing.md   # Starting state
+│   ├── cycle-1-think-*.md    # Lead decisions
+│   ├── cycle-1-briefing.md   # Compressed digest
+│   └── ...
+└── {department}/
+    ├── {worker}.md           # Individual findings (persist)
+    └── ...
 ```
 
-## Why Not X
+## Incremental Sessions
 
-| | Company | CrewAI | AutoGen | Overstory | agent_farm |
-|---|---|---|---|---|---|
-| Config | Markdown | Python | Python | YAML+SQLite | Python |
-| Max agents | unlimited (in waves) | ~10 | ~10 | 25 | 50 |
-| Communication | Typed JSON | Direct msgs | Group chat | SQLite mail | Filesystem |
-| Context per agent | <3K tokens | Shared (100K+) | Shared | Isolated | Isolated |
-| Persistence | Findings + messages | None | None | SQLite | None |
-| Install | Copy 1 file | pip | pip | pip+SQLite | Clone+tmux |
+Next session, `/company` reads STATUS.md + memory/ + latest briefing and resumes. No work is lost. Workers check previous findings before re-researching.
 
 ## Examples
 
-| File | Size |
-|------|------|
+| File | Description |
+|------|-------------|
 | [`startup.md`](examples/startup.md) | 10-person startup |
 | [`research-lab.md`](examples/research-lab.md) | Academic group |
 | [`dev-team.md`](examples/dev-team.md) | Dev sprint team |
 | [`nexusquant.md`](examples/nexusquant.md) | Full AI research company |
+
+## Why Not CrewAI / AutoGen / Ruflo?
+
+| | Company | CrewAI | AutoGen | Ruflo |
+|---|---|---|---|---|
+| Config | Markdown | Python | Python | TypeScript+YAML |
+| Install | Copy 1 file | pip + deps | pip + deps | npm + WASM |
+| Runs in | Claude Code | Own process | Own process | Own process |
+| Communication | File blackboard | Direct msgs | Group chat | MCP namespace |
+| Context/agent | <3K tokens | Shared | Shared | Isolated |
+| Persistence | Memory + findings | None | None | SQLite |
+| Skills | Auto-installs gstack/GSD/etc | None | None | Built-in |
+| Feedback loop | THINK→EXECUTE→COMPRESS | Sequential | Group debate | Queen coordinator |
 
 ## License
 

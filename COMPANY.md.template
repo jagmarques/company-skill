@@ -1,0 +1,76 @@
+# My Company
+
+<!--
+  INSTRUCTIONS:
+  1. Rename this file to COMPANY.md
+  2. Fill in your departments and roles
+  3. Add/remove departments as needed
+  4. Add/remove roles as needed — no limit
+  5. Run /company in Claude Code
+
+  TIPS:
+  - First role in each department (or marked "Lead:") becomes the department lead
+  - Add [opus], [sonnet], or [haiku] to override model per role
+  - Default: leads use Opus (deep thinking), workers use Sonnet (execution)
+  - Add as many departments and roles as you want
+-->
+
+## Engineering (Lead: CTO)
+- CTO — technical decisions, architecture, code review
+- Backend Developer — API design, database, business logic
+- Frontend Developer — UI components, state management
+- DevOps Engineer — CI/CD, infrastructure, monitoring
+<!-- Add more engineering roles here -->
+
+## Research (Lead: Research Director)
+- Research Director — research strategy, paper writing
+- ML Scientist — experiments, model analysis
+- Data Engineer — data pipelines, preprocessing
+<!-- Add more research roles here -->
+
+## Quality (Lead: QA Lead)
+- QA Lead — test strategy, release validation
+- Security Reviewer — vulnerability analysis, dependency audit
+- Code Reviewer — style, patterns, best practices
+<!-- Add more quality roles here -->
+
+## Product (Lead: Product Manager)
+- Product Manager — specs, roadmap, user stories
+- Designer — UI/UX, mockups, prototypes
+<!-- Add more product roles here -->
+
+## Scouts (Lead: Scout Lead)
+- Scout Lead — competitive intelligence coordination
+- GitHub Scout — scan for new tools, libraries, competitors
+- Industry Scout — track market trends, announcements
+<!-- Add more scout roles here -->
+
+<!--
+  ADD MORE DEPARTMENTS:
+
+  ## Marketing (Lead: Marketing Lead)
+  - Marketing Lead — growth strategy
+  - Content Writer — blog posts, documentation
+  - SEO Specialist — search optimization
+
+  ## Finance (Lead: CFO)
+  - CFO — budget, forecasting
+  - Financial Analyst — metrics, reporting
+
+  ## Legal (Lead: Legal Counsel)
+  - Legal Counsel — contracts, IP, compliance
+  - Patent Attorney — patent strategy, filing
+-->
+
+## Priorities
+<!-- List what the company should work on. Tag with [URGENT], [IMPORTANT], or [RESEARCH] -->
+1. [URGENT] <!-- Your most urgent task -->
+2. [IMPORTANT] <!-- Important but not blocking -->
+3. [RESEARCH] <!-- Background investigation -->
+
+## Rules
+<!-- Define quality gates and approval workflows -->
+- No code ships without QA Lead sign-off
+- Security Reviewer must approve anything touching auth or payments
+- All findings need at least one reviewer before being accepted
+<!-- Add more rules here -->
