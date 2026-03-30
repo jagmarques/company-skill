@@ -10,6 +10,12 @@ A Claude Code skill that reads your team structure from `COMPANY.md`, runs every
 
 ## Install
 
+npm:
+```bash
+npx company-skill install
+```
+
+Or from git:
 ```bash
 curl -sL https://raw.githubusercontent.com/jagmarques/company-skill/main/install.sh | bash
 ```
