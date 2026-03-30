@@ -117,10 +117,13 @@ done 2>/dev/null | sort -u)
 echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
-# Marketplace plugins (can't auto-install, detect if user added them)
-# User can install: /plugin marketplace add obra/superpowers-marketplace
-# User can install: /plugin marketplace add wshobson/agents
-# User can install: /plugin marketplace add alirezarezvani/claude-skills
+# More skill packs via npm
+echo "$INSTALLED" | grep -q "claude-mem\|thedotmack" || npm i -g claude-mem@latest 2>/dev/null || true
+echo "$INSTALLED" | grep -q "oh-my-claude\|sisyphus" || npm i -g oh-my-claude-sisyphus@latest 2>/dev/null || true
+# Marketplace plugins (detect if user added them, can't auto-install)
+# /plugin marketplace add obra/superpowers-marketplace
+# /plugin marketplace add wshobson/agents
+# /plugin marketplace add alirezarezvani/claude-skills
 
 for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
