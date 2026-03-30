@@ -86,30 +86,29 @@ Installs globally. Works from any directory.
 
 ## Visual Indicators
 
-When the skill runs, you see:
+When the skill runs, you see progress as plain text:
 
 ```
-╔══════════════════════════════════════════════╗
-║           🏢 COMPANY SKILL ACTIVE            ║
-╚══════════════════════════════════════════════╝
-
-Reading COMPANY.md...
-Team: 40 roles found
+════════════════════════════════════════════════
+             🏢 COMPANY SKILL ACTIVE
+════════════════════════════════════════════════
 
 ════════════════════════════════════════════════
-  🏢 CYCLE 1 — THINK → EXECUTE → VERIFY
+  🏢 CYCLE 1 - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
   📋 CYCLE 1 VERDICT: NOT DONE
   Missing validation of compression ratios
 
 ════════════════════════════════════════════════
-  🏢 CYCLE 2 — THINK → EXECUTE → VERIFY
+  🏢 CYCLE 2 - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
   📋 CYCLE 2 VERDICT: DONE
   All success criteria met
 ```
+
+Employees show with colors: leads (cyan), workers (green), reviewers (yellow), digest (gray).
 
 ## Agents
 
