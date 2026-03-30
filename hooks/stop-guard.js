@@ -9,6 +9,15 @@ const criteriaPath = path.join(companyDir, 'criteria.json');
 const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
 
+// Read stdin for stop_hook_active flag
+let stdinData = '';
+try { stdinData = fs.readFileSync('/dev/stdin', 'utf8'); } catch (e) {}
+let hookActive = false;
+try { hookActive = JSON.parse(stdinData).stop_hook_active === true; } catch (e) {}
+
+// If hook already fired once and Claude is trying to stop again, let it
+if (hookActive) process.exit(0);
+
 // No company running
 if (!fs.existsSync(goalPath) && !fs.existsSync(criteriaPath)) process.exit(0);
 
