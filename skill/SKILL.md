@@ -87,26 +87,51 @@ The company skill auto-installs recommended skill packs that make agents more po
 INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
 done 2>/dev/null | sort -u)
-echo "Already installed: $INSTALLED"
+echo "=== Already installed ==="
+echo "$INSTALLED"
+echo "=== Installing missing skill packs ==="
 
-# Install gstack (gives: review, ship, qa, investigate, browse, benchmark, etc.)
+# 1. gstack (55k stars) — review, ship, qa, investigate, browse, benchmark, office-hours
 if ! echo "$INSTALLED" | grep -q "gstack"; then
-  echo "Installing gstack skill pack..."
-  cd ~/.claude/skills 2>/dev/null || mkdir -p ~/.claude/skills && cd ~/.claude/skills
-  git clone --depth 1 https://github.com/gstack-com/gstack.git 2>/dev/null && echo "gstack installed" || echo "gstack install failed (optional)"
+  echo "Installing gstack..."
+  npx gstack@latest install 2>/dev/null && echo "OK: gstack" || echo "SKIP: gstack (optional)"
 fi
 
-# Install GSD (gives: plan-phase, execute-phase, verify-work, progress, etc.)
+# 2. GSD — plan-phase, execute-phase, verify-work, progress, debug
 if ! echo "$INSTALLED" | grep -q "gsd"; then
   echo "Installing GSD..."
-  npx -y gsd-install 2>/dev/null && echo "GSD installed" || echo "GSD install failed (optional)"
+  npx -y gsd-install 2>/dev/null && echo "OK: GSD" || echo "SKIP: GSD (optional)"
+fi
+
+# 3. superpowers (obra) — brainstorm, write-plan, execute-plan, TDD, Chrome control
+if ! echo "$INSTALLED" | grep -q "superpowers"; then
+  echo "Installing superpowers..."
+  mkdir -p ~/.claude/skills/superpowers
+  curl -sL "https://raw.githubusercontent.com/obra/superpowers-marketplace/main/skills/superpowers/SKILL.md" -o ~/.claude/skills/superpowers/SKILL.md 2>/dev/null && echo "OK: superpowers" || echo "SKIP: superpowers (optional)"
+fi
+
+# 4. trailofbits — security audit, vulnerability detection
+if ! echo "$INSTALLED" | grep -q "trailofbits"; then
+  echo "Installing trailofbits security skills..."
+  git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && \
+    cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && \
+    rm -rf /tmp/tob-skills && echo "OK: trailofbits" || echo "SKIP: trailofbits (optional)"
 fi
 
 # Re-detect after install
+echo "=== Available skills ==="
 for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
 done 2>/dev/null | sort -u
 ```
+
+The skill also works with marketplace plugins if the user has them:
+- `wshobson/agents` (72 plugins: security, ML-ops, debugging, python, data-eng)
+- `alirezarezvani/claude-skills` (205 skills: RAG architect, perf profiler, tech-debt)
+- `oh-my-claudecode` (team mode, 32 agents, autopilot)
+
+These require `/plugin marketplace add` which needs user interaction, so we detect
+but don't auto-install them. If detected, their skills become available to leads.
 
 Build {DETECTED_SKILLS} from the output. Map each to a one-line description:
 
@@ -307,6 +332,38 @@ With the loop: 3 cycles of the full company = 3x agent-actions, each informed by
     └── benchmark-eng.md
 ```
 
+## Namespaced Memory (from Ruflo)
+
+Agents store findings with namespaced keys in `.company/memory/`:
+
+```
+company$research$lattice-entropy     → "E8 compresses 3.7x vs scalar 1.23x"
+company$engineering$deflate-result   → "5.68x at 3-bit on real KV"
+company$quality$veto-mp-threshold    → "MP fails on correlated data — REJECTED"
+company$scouts$threat-latticequant   → "Competitor repo appeared 2026-03-29"
+```
+
+Format: one JSON file per namespace at `.company/memory/{dept}.json`.
+Agents read their dept's memory + `company$shared$*` entries.
+Persists across sessions — this is how agents "learn."
+
+## Health Monitoring (from Ruflo)
+
+If a lead agent fails or times out:
+1. Log the failure in `.company/cycles/cycle-{N}-errors.md`
+2. Skip that department for this cycle (don't block others)
+3. Next cycle: retry with a simpler task prompt
+4. If 3 consecutive failures: flag to CEO, suggest removing from COMPANY.md
+
+## CEO Override
+
+When a priority is CRITICAL, the CEO (you) can bypass the normal cycle:
+1. Write directly to `.company/memory/shared.json` with a directive
+2. All leads read shared memory at cycle start
+3. The directive overrides normal prioritization
+
+This is Ruflo's "queen override" pattern — sometimes consensus is too slow.
+
 ## Incremental Sessions
 
-Next session, `/company` reads `.company/STATUS.md` and `.company/cycles/` to see where things left off. The latest briefing becomes cycle 0 for the new session. No work is lost.
+Next session, `/company` reads `.company/STATUS.md`, `.company/cycles/`, and `.company/memory/` to see where things left off. The latest briefing + accumulated memory becomes cycle 0. No work is lost.
