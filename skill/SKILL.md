@@ -82,9 +82,9 @@ Read the user's goal from the command argument or their message.
 for f in COMPANY.md company.md; do [ -f "$f" ] && echo "FOUND: $f" && break; done
 ```
 
-If no COMPANY.md found and a goal was given, auto-create a minimal company.
-
-Parse COMPANY.md for departments, roles, priorities, rules. If no COMPANY.md exists, create a minimal company: CEO + one department matching the goal type (engineering for code, research for analysis, etc.) + the built-in reviewers.
+If no COMPANY.md found:
+1. If a goal was given, create a COMPANY.md with a minimal team tailored to the goal (engineering dept for code goals, research dept for analysis goals, etc.) plus the built-in roles. Write it to disk so the user can edit it later.
+2. If no goal given, create COMPANY.md from the template with placeholder departments and tell the user to fill it in before running again.
 
 **Parsing rules:**
 - Roles are `- ` lines that appear UNDER department headers (`## Department Name`)
