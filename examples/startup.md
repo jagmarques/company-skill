@@ -1,22 +1,22 @@
-# Startup — 10 Person Team
+# Startup, 10 Person Team
 
 ## Product (Lead: CEO)
-- CEO — product vision, customer interviews, prioritization
-- Product Manager — specs, user stories, roadmap
+- CEO, product vision, customer interviews, prioritization
+- Product Manager, specs, user stories, roadmap
 
 ## Engineering (Lead: CTO)
-- CTO — architecture, code review, technical decisions
-- Senior Backend — API design, database, auth
-- Senior Frontend — UI/UX implementation, components
-- Junior Fullstack — features, bug fixes
+- CTO, architecture, code review, technical decisions
+- Senior Backend, API design, database, auth
+- Senior Frontend, UI/UX implementation, components
+- Junior Fullstack, features, bug fixes
 
 ## Design (Lead: Design Lead)
-- Design Lead — design system, user research
-- UI Designer — mockups, prototypes
+- Design Lead, design system, user research
+- UI Designer, mockups, prototypes
 
 ## Quality (Lead: QA Lead)
-- QA Lead — test strategy, release validation
-- Marketing — landing page, content, growth
+- QA Lead, test strategy, release validation
+- Marketing, landing page, content, growth
 
 ## Priorities
 1. [URGENT] Ship MVP by end of week

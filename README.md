@@ -1,8 +1,12 @@
 # Company
 
-A Claude Code skill that turns a markdown org chart into a running multi-employee company.
+Give it a goal. The whole company works until it's done.
 
-Write your team structure in `COMPANY.md`. Type `/company`. Every department activates, employees do their work, and you get a status report of what was accomplished.
+```
+/company "Build the user auth system with OAuth2"
+```
+
+A Claude Code skill that reads your team structure from `COMPANY.md`, runs every employee in loops, and doesn't stop until built-in reviewers verify the goal is met.
 
 ## Install
 
@@ -10,129 +14,121 @@ Write your team structure in `COMPANY.md`. Type `/company`. Every department act
 curl -sL https://raw.githubusercontent.com/jagmarques/company-skill/main/install.sh | bash
 ```
 
-This installs the skill and creates a `COMPANY.md` template. Edit it with your team, then:
-
-```
-/company
-```
+Edit `COMPANY.md` with your team. Or skip it, the skill creates a minimal company automatically.
 
 ## How It Works
 
-The company runs in cycles. Each cycle has three phases:
+```
+GOAL: "Build the auth system"
 
-**THINK** — Department leads (Opus) read the priorities, review previous findings, and assign tasks to their team members.
+  THINK     Leads break the goal into tasks
+  EXECUTE   Employees do the work
+  VERIFY    Built-in Reviewer + Critic check if the goal is met
 
-**EXECUTE** — Team members (Sonnet) do the actual work: research, code, review, scan. They use installed skills like `/review`, `/investigate`, `/qa` when available.
+  Not done? Loop back with feedback on what's missing.
+  Done? Write STATUS.md, report to user.
+```
 
-**COMPRESS** — A digest writer (Haiku) reads everything that happened and creates a briefing for the next cycle. Only important findings carry forward in full. Routine updates get one line.
+The loop runs up to 5 iterations. Each cycle builds on the last.
 
-This repeats for 3 cycles. Each cycle builds on the last — research findings inform engineering, quality rejections trigger rework, scout alerts cause strategy pivots.
+## Built-In Roles
+
+Every company gets these employees automatically, even if your COMPANY.md is empty:
+
+| Role | Phase | What they do |
+|------|-------|-------------|
+| CEO | THINK | Sets priorities, resolves conflicts |
+| CTO | THINK | Technical decisions, architecture |
+| Internal Reviewer | VERIFY | Checks work against goal criteria |
+| Devil's Advocate | VERIFY | Attacks results, finds holes |
+| Elegance Enforcer | VERIFY | Prevents over-engineering |
+| User Advocate | VERIFY | Represents the end user |
+
+If you define these roles in COMPANY.md, the skill uses your description instead. No duplicates.
+
+A minimal `/company "fix the login bug"` with no COMPANY.md runs: CEO + CTO + 2 auto-created engineers + 4 built-in reviewers = 8 employees.
 
 ## Write Your Company
 
-Edit `COMPANY.md`:
+`COMPANY.md` adds your own employees on top of the built-ins:
 
 ```markdown
-# My Company
+# My Team
 
 ## Executive (Lead: CEO)
-- CEO — strategy, priorities, conflict resolution
-- CTO — technical decisions, architecture
+- CEO, product vision, customer focus
+- CTO, architecture, technical standards
 
 ## Engineering (Lead: CTO)
-- Backend Developer — API, database
-- Frontend Developer — UI, components
-- DevOps Engineer — CI/CD, monitoring
-
-## Quality (Lead: QA Lead)
-- QA Lead — test strategy, release sign-off
-- Security Reviewer — vulnerability analysis
+- Backend Developer, API, database
+- Frontend Developer, UI, components
+- DevOps Engineer, CI/CD, monitoring
 
 ## Priorities
-1. [URGENT] Fix checkout payment bug
+1. [URGENT] Fix payment processing
 2. [IMPORTANT] Add user dashboard
-3. [RESEARCH] Evaluate caching options
 
 ## Rules
-- No deploy without QA Lead sign-off
-- Security Reviewer must approve auth changes
+- No deploy without review
 ```
 
-Add as many departments and employees as you need. The skill handles any size.
+## Commands
+
+```
+/company "Build X"     Run the company until X is done
+/company               Run using priorities from COMPANY.md
+/company status        Show last status without running
+/company resume        Continue from where last session stopped
+```
 
 ## Model Assignment
 
 | Phase | Model | Who |
 |-------|-------|-----|
-| THINK | Opus | Leads, critics, strategists, CEO |
-| EXECUTE | Sonnet | Engineers, researchers, scouts, designers |
+| THINK | Opus | CEO, CTO, department leads |
+| EXECUTE | Sonnet | Engineers, researchers, scouts |
+| VERIFY | Opus | Reviewer, Advocate, Enforcer, User Advocate |
 | COMPRESS | Haiku | Digest writer between cycles |
 
-Override per employee with `[opus]`, `[sonnet]`, or `[haiku]` tags:
-
-```markdown
-- ML Scientist — critical experiments [opus]
-- Data Entry — log processing [haiku]
-```
+Override per employee: `- ML Scientist, experiments [opus]`
 
 ## Installed Skills
 
-On first run, the skill installs available toolkits so employees can use them:
+On first run, auto-installs available toolkits:
 
 | Pack | What employees get |
 |------|-------------------|
-| gstack | /review, /ship, /qa, /investigate, /browse, /office-hours |
+| gstack | /review, /ship, /qa, /investigate, /browse |
 | GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work |
 | trailofbits | Security audit, vulnerability detection |
 
-Also detects marketplace plugins (superpowers, wshobson/agents, oh-my-claudecode) if installed.
-
-All optional. Employees fall back to raw tools if nothing is available.
-
-## Communication
-
-Employees don't share context with each other. They communicate through files:
-
-**Messages** — Each employee writes typed findings to `.company/messages/{dept}.jsonl` with a priority rating (1-5). Only priority 3+ messages reach other departments.
-
-**Briefings** — Between cycles, the digest writer compresses all output into a single briefing file. This is the only thing that carries forward.
-
-**Memory** — Important findings persist in `.company/memory/{dept}.json` across sessions. Next time you run `/company`, employees pick up where they left off.
+All optional. Falls back to raw tools.
 
 ## What Gets Created
 
 ```
 .company/
-  PRIORITIES.md
+  GOAL.md
   STATUS.md
-  memory/
-    research.json
-    engineering.json
-  messages/
-    research.jsonl
-    quality.jsonl
+  memory/{dept}.json
+  messages/{dept}.jsonl
   cycles/
     cycle-0-briefing.md
-    cycle-1-think-research.md
+    cycle-1-think-{dept}.md
+    cycle-1-review.md
+    cycle-1-advocate.md
     cycle-1-briefing.md
-  research/
-    ml-scientist.md
-  engineering/
-    backend-developer.md
+  {dept}/{employee}.md
 ```
-
-## Incremental Sessions
-
-Run `/company` again next session. It reads the previous status, memory, and latest briefing. Departments with no new work are skipped. Employees check their previous findings before re-researching.
 
 ## Examples
 
 | File | Team |
 |------|------|
 | [`startup.md`](examples/startup.md) | 10-person startup |
-| [`research-lab.md`](examples/research-lab.md) | Academic research group |
-| [`dev-team.md`](examples/dev-team.md) | Software development team |
-| [`nexusquant.md`](examples/nexusquant.md) | Full AI research company |
+| [`research-lab.md`](examples/research-lab.md) | Academic group |
+| [`dev-team.md`](examples/dev-team.md) | Dev sprint |
+| [`nexusquant.md`](examples/nexusquant.md) | Full research company |
 
 ## License
 

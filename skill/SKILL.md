@@ -1,10 +1,9 @@
 ---
 name: company
-version: 3.2.0
 description: |
-  Multi-agent company with feedback loops. Opus thinks, Sonnet executes, Haiku compresses.
-  Reads COMPANY.md, runs continuous cycles until priorities are done.
-  Use when: "launch company", "start company", "all agents", "full team".
+  Goal-driven multi-employee company. Give it a goal, it runs until done.
+  Reads COMPANY.md for team structure. Built-in quality reviewers.
+  Use when: "launch company", "start company", "all employees", or /company "goal".
 allowed-tools:
   - Bash
   - Read
@@ -18,257 +17,290 @@ allowed-tools:
   - Skill
 ---
 
-# /company — Multi-Agent Company with Feedback Loops
+# /company, Goal-Driven Multi-Employee Company
 
-## Architecture
+Give it a goal. It runs the entire company in loops until the goal is verified done.
 
 ```
-CYCLE N:
-  ┌─────────────────────────────────────┐
-  │                                     │
-  ▼                                     │
-THINK (Opus)                            │
-  Leads analyze priorities + assign     │
-  Critics review previous cycle         │
-  → writes: decisions + task list       │
-  │                                     │
-  ▼                                     │
-EXECUTE (Sonnet)                        │
-  Workers do the actual work            │
-  Use skills (/review, /qa, etc.)       │
-  → writes: findings + results          │
-  │                                     │
-  ▼                                     │
-COMPRESS (Haiku)                        │
-  Summarize into next cycle's briefing  │
-  → writes: cycle-{N+1}-briefing.md     │
-  │                                     │
-  └─────────────────────────────────────┘
-  Repeat until: leads say DONE or max 3 cycles
+/company "Build the user authentication system with OAuth2"
+/company "Research all competitors and write a competitive analysis"
+/company "Fix the payment processing bug and deploy"
 ```
 
-## Model Tiers
+You set the goal. Walk away. Come back to a STATUS.md with everything accomplished.
 
-| Tier | Model | Who | Why |
-|------|-------|-----|-----|
-| THINK | Opus | Leads, critics, strategists | Decisions need deep reasoning |
-| EXECUTE | Sonnet | Workers, engineers, researchers, scouts | Tasks need competence |
-| COMPRESS | Haiku | Digest writer | Summarization is cheap |
+## Core Loop
 
-Override any role with `[opus]`, `[sonnet]`, or `[haiku]` in COMPANY.md.
+```
+GOAL: "{what the user asked for}"
+  |
+  THINK ── Leads break the goal into tasks, assign to employees
+  |
+  EXECUTE ── Employees do the work (code, research, scan, test)
+  |
+  VERIFY ── Built-in Reviewer + Critic check if the goal is actually met
+  |
+  Done? ── NO: loop back to THINK with feedback on what's missing
+         ── YES: write STATUS.md, report to user
+```
 
-## Step 1: Parse COMPANY.md
+The loop does NOT stop until VERIFY says the goal is met, or max 5 iterations.
+
+## Built-In Roles (Always Active)
+
+These exist in EVERY company, regardless of COMPANY.md. They are the backbone.
+If the user already defined any of these roles, the built-in version merges with theirs (no duplicates).
+
+### Leadership (THINK phase)
+**CEO**, Reads the goal, sets priorities, resolves conflicts between departments. If the user defined a CEO, that definition is used. If not, auto-created.
+
+**CTO**, Technical decisions, architecture review, code quality standards. Auto-created if not defined.
+
+### Quality Gate (VERIFY phase)
+**Internal Reviewer**, Reviews all work after each cycle. Checks: is it correct? Does it address the goal? Are there bugs or gaps? Grades each success criterion as MET / NOT MET / PARTIALLY MET.
+
+**Devil's Advocate**, Attacks every result. "What could go wrong? What did we miss? Would an external expert accept this?" Only satisfied when there are zero remaining holes.
+
+**Elegance Enforcer**, "Can this be simpler? Is there unnecessary complexity? Does every component justify its existence?" Prevents over-engineering.
+
+**User Advocate**, "Would a real user understand this? Is the API ugly? Does the README make sense in 10 seconds?" Represents the end user who doesn't care about internals.
+
+### Deduplication Rule
+When parsing COMPANY.md, check if the user defined roles matching these built-ins:
+- Match by name similarity: "CEO", "Chief Executive", "CTO", "Tech Lead", "Reviewer", "Critic", "Advocate", etc.
+- If match found: use the USER'S description but ensure the role runs in the correct phase (CEO in THINK, Reviewer in VERIFY)
+- If no match: auto-create with default description
+- Never duplicate: one CEO, one CTO, one Reviewer, one Advocate, one Elegance Enforcer, one User Advocate
+
+This means a 2-person COMPANY.md (just "Backend Dev" + "Frontend Dev") automatically gets: CEO + CTO + Backend Dev + Frontend Dev + Internal Reviewer + Devil's Advocate + Elegance Enforcer + User Advocate = 8 employees running.
+
+## Step 1: Parse Goal + Company
+
+Read the user's goal from the command argument or their message.
 
 ```bash
 for f in COMPANY.md company.md; do [ -f "$f" ] && echo "FOUND: $f" && break; done
 ```
 
-Read the file. If not found, tell the user to create one.
+Parse COMPANY.md for departments, roles, priorities, rules. If no COMPANY.md exists, create a minimal company: CEO + one department matching the goal type (engineering for code, research for analysis, etc.) + the two built-in reviewers.
 
-Classify every role:
-- **THINK (Opus):** lead, director, chief, critic, reviewer, advocate, strategist, CEO, CTO, principal, architect
+Classify roles:
+- **THINK (Opus):** lead, director, chief, CEO, CTO, principal, architect, strategist
 - **EXECUTE (Sonnet):** engineer, researcher, scientist, developer, specialist, analyst, scout, designer, writer
-- **COMPRESS (Haiku):** auto-created — one per department
+- **VERIFY (Opus):** Internal Reviewer + Devil's Advocate (always Opus, verification needs deep reasoning)
+- **COMPRESS (Haiku):** auto-created digest writer
 
-Explicit `[opus]`/`[sonnet]`/`[haiku]` tags in COMPANY.md override these defaults.
+Explicit `[opus]`/`[sonnet]`/`[haiku]` tags override defaults.
 
-If no `## Departments` or `##` headers found, auto-group by function:
-- Research/science/theory/math → Research dept
-- Engineering/code/build/test → Engineering dept
-- Quality/review/critic/audit → Quality dept
-- Writing/paper/docs/design → Paper dept
-- Scout/scan/monitor/track → Intelligence dept
-
-If no `## Priorities` found, ask the user what to work on.
-
-## Step 2: Install and Detect Skills
+## Step 2: Install Skills
 
 ```bash
 INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
 done 2>/dev/null | sort -u)
-echo "Installed: $INSTALLED"
 
-# Auto-install missing packs (all optional, failures don't block)
 echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
-# superpowers and wshobson/agents are marketplace plugins — detect but don't auto-install
-# User can add them manually: /plugin marketplace add obra/superpowers-marketplace
 
-# Final detection
-echo "=== Available ==="
 for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
 done 2>/dev/null | sort -u
 ```
 
-Build {DETECTED_SKILLS} — a bullet list of installed skills with one-line descriptions.
-If nothing is installed, agents use raw tools (Read, Write, Edit, Bash, Grep, Glob, WebSearch).
+Build {DETECTED_SKILLS} list. Skills are optional power-ups.
 
-## Step 3: Initialize Workspace
+## Step 3: Initialize
 
 ```bash
 mkdir -p .company/cycles .company/messages .company/memory
-echo ".company/" >> .gitignore 2>/dev/null || true
+grep -q "^\.company/" .gitignore 2>/dev/null || echo ".company/" >> .gitignore 2>/dev/null || true
 ```
 
-Write `.company/PRIORITIES.md` from: COMPANY.md priorities + user instructions + any `.planning/NEXT_SESSION.md`.
+Write `.company/GOAL.md`:
+```markdown
+# Goal
+{the user's goal}
 
-Write `.company/cycles/cycle-0-briefing.md` as the starting briefing:
-- Priorities
-- Rules from COMPANY.md
-- Previous state from `.company/STATUS.md` (if exists from last session)
-- Previous memory from `.company/memory/*.json` (if exists)
+# Success Criteria
+{inferred from the goal, what does "done" look like?}
+```
 
-## Step 4: Run Cycle
+Write `.company/cycles/cycle-0-briefing.md` with: goal, success criteria, team structure, rules, any previous state.
 
-### Phase A — THINK (Opus, parallel)
+## Step 4: Run Loop (repeat until verified)
 
-Launch ALL lead/critic/strategist agents in ONE message (parallel). Each gets:
+### Phase A, THINK (Opus, parallel)
+
+Launch all department leads in parallel. Each gets:
 
 ```
 You are {ROLE} ({DEPT} department). Cycle {N}.
 
-BRIEFING:
-{contents of .company/cycles/cycle-{N}-briefing.md}
+GOAL: {contents of .company/GOAL.md}
+BRIEFING: {contents of .company/cycles/cycle-{N}-briefing.md}
+YOUR TEAM: {list of employees in your department}
+AVAILABLE SKILLS: {DETECTED_SKILLS or "raw tools only"}
 
-YOUR TEAM:
-{list of Sonnet workers in your department with descriptions}
-
-AVAILABLE SKILLS:
-{DETECTED_SKILLS list, or "None — use raw tools (Read, Write, Bash, WebSearch, etc.)"}
+{If cycle > 0:}
+FEEDBACK FROM LAST VERIFICATION:
+{what the Reviewer and Critic said was missing}
 
 INSTRUCTIONS:
-1. Read the briefing. What changed since last cycle?
-2. Decide which workers to activate for URGENT priorities.
-3. Write task list to .company/cycles/cycle-{N}-think-{dept}.md:
+1. What does your department need to do to achieve the GOAL?
+2. {If cycle > 0:} Address the verification feedback specifically.
+3. Assign tasks to your employees:
 
    TASK: {one sentence}
-   ASSIGN: {worker role}
-   SKILL: {/review, /investigate, /qa, etc. or "raw" if no skill fits}
-   CONTEXT: {max 200 words of relevant info}
+   ASSIGN: {employee role}
+   SKILL: {/review, /investigate, /qa, etc. or "raw"}
+   CONTEXT: {max 200 words}
 
-   TASK: {next task}
-   ...
-
-4. Quality/Critic roles: review previous cycle findings.
-   Write APPROVED or REJECTED with reason for each claim.
-5. If your department's work is done: write STATUS: COMPLETE
+4. Write to .company/cycles/cycle-{N}-think-{dept}.md
 ```
 
-### Phase B — EXECUTE (Sonnet, parallel)
+### Phase B, EXECUTE (Sonnet, parallel)
 
-Read all Phase A outputs. Collect task assignments. Launch ALL assigned workers in parallel. Each gets:
+Launch all assigned employees. Each gets:
 
 ```
-You are {WORKER_ROLE}. Cycle {N}.
+You are {ROLE}. Cycle {N}.
 
+GOAL: {the company's goal, so every employee knows WHY}
 TASK: {from lead's assignment}
-CONTEXT: {from lead's assignment}
+CONTEXT: {from lead}
 SKILL: {assigned skill or "raw"}
-PREVIOUS WORK: {contents of .company/{dept}/{worker-slug}.md if exists, else "none"}
+PREVIOUS WORK: {.company/{dept}/{worker-slug}.md if exists}
 
 INSTRUCTIONS:
-1. If a skill was assigned: use the Skill tool to invoke it.
-   Example: Use Skill tool with skill="/review" or skill="/investigate".
-   If the skill isn't available, fall back to raw tools.
-2. If "raw": use Read, Write, Edit, Bash, Grep, Glob, WebSearch directly.
+1. If a skill was assigned, use the Skill tool to invoke it.
+2. Otherwise use raw tools.
 3. Write findings to .company/{dept}/{worker-slug}.md
-4. Rate your finding 1-5 (1=nothing new, 5=breakthrough).
+4. Rate finding 1-5.
 5. Append to .company/messages/{dept}.jsonl:
    {"type":"finding","from":"{ROLE}","priority":N,"content":"summary"}
 ```
 
-### Phase C — COMPRESS (Haiku)
+### Phase C, VERIFY (Opus, sequential)
 
-Launch ONE Haiku agent:
+This is what makes the loop work. Launch TWO built-in reviewers:
 
+**Internal Reviewer:**
 ```
-You are the Digest Writer. Cycle {N} complete.
+You are the Internal Reviewer. Cycle {N} just completed.
 
-Read these files:
-1. All .company/cycles/cycle-{N}-think-*.md files (use Glob to find them)
-2. All .company/messages/*.jsonl files
-3. .company/cycles/cycle-{N}-briefing.md
+GOAL: {from .company/GOAL.md}
+SUCCESS CRITERIA: {from .company/GOAL.md}
 
-Write .company/cycles/cycle-{N+1}-briefing.md:
+Read ALL of these:
+- All .company/messages/*.jsonl from this cycle
+- All .company/{dept}/*.md employee findings
+- Any code changes (git diff if applicable)
 
-1. ACCOMPLISHED (bullet points)
-2. KEY FINDINGS (priority 4-5: full content. Priority 1-3: one line each)
-3. QUALITY VERDICTS (approved/rejected)
-4. OPEN QUESTIONS
-5. BLOCKERS
-6. UPDATED PRIORITIES (what next cycle should focus on)
-7. CROSS-DEPARTMENT NOTES
+QUESTION: Has the goal been achieved? Check each success criterion.
 
-Budget: 1500-2500 words. Don't drop priority 4-5 findings.
+Write to .company/cycles/cycle-{N}-review.md:
+For each criterion:
+  CRITERION: {what was required}
+  STATUS: MET / NOT MET / PARTIALLY MET
+  EVIDENCE: {what proves it}
+  GAPS: {what's still missing}
+
+FINAL VERDICT: DONE or NOT DONE
+If NOT DONE: list exactly what the next cycle must fix.
 ```
 
-### Phase D — Loop or Stop
+**Devil's Advocate:**
+```
+You are the Devil's Advocate. Your job: find holes.
 
-Check:
-- All departments wrote STATUS: COMPLETE → STOP
-- Reached max 3 cycles → STOP
-- Otherwise → back to Phase A with cycle N+1
+GOAL: {from .company/GOAL.md}
+REVIEWER VERDICT: {from cycle-{N}-review.md}
 
-## Step 5: Final Synthesis
+If the Reviewer said DONE, challenge it:
+- Is the work ACTUALLY complete or just surface-level?
+- What edge cases were missed?
+- Would this survive scrutiny from an external expert?
+- Is there anything we're fooling ourselves about?
+
+If the Reviewer said NOT DONE, amplify:
+- What's the REAL blocker?
+- Is the team approaching this the right way or wasting cycles?
+
+Write to .company/cycles/cycle-{N}-advocate.md:
+VERDICT: ACCEPT (goal truly met) or CHALLENGE (not yet)
+REASON: {honest assessment}
+GAPS: {what's missing, if any}
+```
+
+### Phase D, COMPRESS + DECIDE
+
+Launch Haiku digest writer to compress cycle output into next briefing.
+
+Then check:
+- Reviewer says DONE **AND** Advocate says ACCEPT → **EXIT LOOP**
+- Either says NOT DONE / CHALLENGE → **inject their feedback into next cycle's briefing, continue**
+- Reached max 5 iterations → **EXIT with partial status**
+
+## Step 5: Final Report
 
 Write `.company/STATUS.md`:
 
 ```markdown
-# Company Status — {DATE} — {N} cycles
+# Company Status, {DATE}
+## Goal
+{the original goal}
 
-## Summary
-{what got done}
+## Verdict: {ACHIEVED / PARTIALLY ACHIEVED / IN PROGRESS}
 
-## Findings (by priority)
-### Priority 5
-{full content}
-### Priority 4
-{full content}
-### Priority 3
-{one line each}
+## What Got Done
+{bullet points from all cycles}
 
-## Quality Verdicts
-{approved/rejected}
+## Verification
+{Reviewer's final assessment}
+{Advocate's final assessment}
 
-## Remaining
-{what didn't finish}
+## Remaining (if any)
+{what didn't get finished}
+
+## Cycles: {N} of 5 max
 ```
 
-Update `.company/memory/{dept}.json` with persistent findings from this session.
+Update `.company/memory/` with persistent findings.
 
-Report summary to user.
+Report to user. If goal was achieved, suggest next steps. If not, explain what's blocking.
+
+## Commands
+
+The skill accepts different forms:
+
+```
+/company "Build the auth system"          ← goal-driven, runs until done
+/company                                  ← reads priorities from COMPANY.md, runs cycles
+/company status                           ← shows .company/STATUS.md without running
+/company resume                           ← continues from where last session stopped
+```
+
+## Without COMPANY.md
+
+If no COMPANY.md exists, the skill creates a minimal team based on the goal:
+- Code/build/fix goals → CEO + CTO + 2 engineers + Internal Reviewer + Devil's Advocate
+- Research/analyze goals → CEO + Research Director + 2 researchers + Internal Reviewer + Devil's Advocate
+- Review/audit goals → CEO + Lead Reviewer + 2 reviewers + Internal Reviewer + Devil's Advocate
+
+The user doesn't need to configure anything. Just `/company "do this thing"`.
 
 ## Namespaced Memory
 
-`.company/memory/{dept}.json` stores persistent knowledge:
-
-```json
-{
-  "lattice-entropy": "E8 compresses 3.7x vs scalar 1.23x",
-  "deflate-result": "5.68x at 3-bit on real KV",
-  "shared": {
-    "threat-latticequant": "Competitor repo appeared 2026-03-29"
-  }
-}
-```
-
-Agents read their dept's memory at cycle start. Persists across sessions.
+`.company/memory/{dept}.json` persists findings across sessions. Employees check memory before re-researching.
 
 ## Health Monitoring
 
-If a lead fails:
-1. Log to `.company/cycles/cycle-{N}-errors.md`
-2. Skip that dept this cycle
-3. Retry next cycle with simpler prompt
-4. After 3 failures: flag to user
+Failed employees get logged and skipped. After 3 consecutive failures, flagged to user.
 
-## CEO Override
+## Safety
 
-Write to `.company/memory/shared.json` to inject directives all leads will read.
-
-## Incremental Sessions
-
-On repeat `/company` runs: read STATUS.md + memory/ + latest briefing. Resume from where the company left off.
+- Max 5 iterations (prevents infinite loops)
+- Each iteration has THINK + EXECUTE + VERIFY (3 phases)
+- Built-in Reviewer + Advocate prevent premature "done" claims
+- All work persists in `.company/`, nothing is lost if the loop stops

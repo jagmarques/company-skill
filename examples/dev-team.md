@@ -1,19 +1,19 @@
-# Development Team — Feature Sprint
+# Development Team, Feature Sprint
 
 ## Backend (Lead: Tech Lead)
-- Tech Lead — architecture, PR reviews, technical decisions
-- Backend Dev A — API endpoints, business logic
-- Backend Dev B — database, migrations, caching
-- DevOps — deployment, monitoring, CI/CD
+- Tech Lead, architecture, PR reviews, technical decisions
+- Backend Dev A, API endpoints, business logic
+- Backend Dev B, database, migrations, caching
+- DevOps, deployment, monitoring, CI/CD
 
 ## Frontend (Lead: Frontend Lead)
-- Frontend Lead — component architecture, state management
-- Frontend Dev A — pages, routing, forms
-- Frontend Dev B — design system, accessibility
+- Frontend Lead, component architecture, state management
+- Frontend Dev A, pages, routing, forms
+- Frontend Dev B, design system, accessibility
 
 ## Quality (Lead: QA Engineer)
-- QA Engineer — test plans, E2E tests, regression
-- Security Reviewer — OWASP checks, dependency audit
+- QA Engineer, test plans, E2E tests, regression
+- Security Reviewer, OWASP checks, dependency audit
 
 ## Priorities
 1. [URGENT] Fix production 500 errors on /api/checkout
