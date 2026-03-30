@@ -80,17 +80,9 @@ Read the user's goal from the command argument or their message.
 
 ```bash
 for f in COMPANY.md company.md; do [ -f "$f" ] && echo "FOUND: $f" && break; done
-# Fallback: check CLAUDE.md for "Company Structure" section
-if [ ! -f COMPANY.md ] && [ ! -f company.md ]; then
-  grep -q "Company Structure\|## Executive\|## Engineering\|## Quality" CLAUDE.md 2>/dev/null && echo "FOUND: CLAUDE.md (company structure section)"
-fi
 ```
 
-The skill looks for company structure in this order:
-1. `COMPANY.md` (dedicated file, preferred)
-2. `company.md`
-3. `CLAUDE.md` (looks for `## Company Structure` or department headers like `## Executive`, `## Engineering`, etc.)
-4. If nothing found and a goal was given, auto-create a minimal company
+If no COMPANY.md found and a goal was given, auto-create a minimal company.
 
 Parse COMPANY.md for departments, roles, priorities, rules. If no COMPANY.md exists, create a minimal company: CEO + one department matching the goal type (engineering for code, research for analysis, etc.) + the built-in reviewers.
 
