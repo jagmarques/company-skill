@@ -28,8 +28,9 @@ if (fs.existsSync(criteriaPath)) {
 
     const failList = failing.map(c => c.description).join(', ');
     console.log(JSON.stringify({
-      decision: "block",
-      reason: failing.length + "/" + all.length + " criteria not met: " + failList
+      continue: false,
+      stopReason: failing.length + "/" + all.length + " criteria not met. Continue working.",
+      systemMessage: "COMPANY GOAL NOT ACHIEVED. " + failing.length + " criteria still failing: " + failList + ". Read .company/criteria.json and start the next THINK > EXECUTE > VERIFY cycle."
     }));
     process.exit(0);
   } catch (e) {
@@ -46,6 +47,7 @@ if (fs.existsSync(statusPath)) {
 }
 
 console.log(JSON.stringify({
-  decision: "block",
-  reason: "Company goal not yet achieved. Continue cycles."
+  continue: false,
+  stopReason: "Company goal not yet achieved.",
+  systemMessage: "COMPANY GOAL NOT ACHIEVED. Read .company/criteria.json and .company/GOAL.md. Start the next THINK > EXECUTE > VERIFY cycle."
 }));
