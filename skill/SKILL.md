@@ -40,7 +40,7 @@ Step 2: Print banner as plain text (NOT Bash):
  ■■        ■■    ■■  ■■■■  ■■■■  ■■   ■■  ■■   ■■  ■■■   ■■   ■■  ■■
  ■■        ■■    ■■  ■■ ■■■■ ■■  ■■■■■■   ■■■■■■■  ■■ ■■ ■■    ■■■■
  ■■        ■■    ■■  ■■  ■■  ■■  ■■       ■■   ■■  ■■   ■■■     ■■
-   ■■■■■■    ■■■■■■   ■■      ■■  ■■       ■■   ■■  ■■    ■■     ■■
+  ■■■■■■    ■■■■■■   ■■      ■■  ■■       ■■   ■■  ■■    ■■     ■■
 ```
 
 Then check if COMPANY.md exists and report how many roles found. Check if playbook.md exists.
