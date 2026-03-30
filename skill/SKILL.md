@@ -113,16 +113,26 @@ INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
 done 2>/dev/null | sort -u)
 
+# Auto-install skill packs (failures don't block)
 echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install 2>/dev/null || true
 echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills 2>/dev/null && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || true
+echo "$INSTALLED" | grep -q "claude-mem\|thedotmack" || npm i -g claude-mem@latest 2>/dev/null || true
+echo "$INSTALLED" | grep -q "superpowers" || npm i -g @anthropic-community/superpowers@latest 2>/dev/null || true
 
 for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do
   [ -f "$d" ] && basename "$(dirname "$d")"
 done 2>/dev/null | sort -u
 ```
 
-Build {DETECTED_SKILLS} list. Skills are optional power-ups.
+Build {DETECTED_SKILLS} list. When installed, skills are MANDATORY.
+
+Users can install additional skill packs manually for more capabilities:
+```
+/plugin marketplace add wshobson/agents
+/plugin marketplace add alirezarezvani/claude-skills
+/plugin marketplace add obra/superpowers-marketplace
+```
 
 ## Step 3: Initialize
 
