@@ -120,7 +120,7 @@ Employees show with colors: leads (cyan), workers (green), reviewers (yellow), d
 
 | Agent | Phase | Color | Role |
 |-------|-------|-------|------|
-| company-lead | THINK | Blue | Department leads, deciding what to do |
+| company-lead | THINK | Cyan | Department leads, deciding what to do |
 | company-worker | EXECUTE | Green | Employees doing the actual work |
 | company-reviewer | VERIFY | Yellow | Internal Reviewer, checking quality |
 | company-critic | VERIFY | Yellow | Devil's Advocate, finding holes |
@@ -146,8 +146,6 @@ Auto-installed on first run:
 | gstack | /review, /ship, /qa, /investigate, /browse, /office-hours |
 | GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work, /gsd:debug |
 | trailofbits | Security audit, vulnerability detection |
-| claude-mem | Persistent memory compression across sessions |
-| oh-my-claudecode | Team orchestration, 32 specialized employees, autopilot |
 
 Install manually for more:
 
@@ -155,6 +153,8 @@ Install manually for more:
 /plugin marketplace add obra/superpowers-marketplace
 /plugin marketplace add wshobson/agents
 /plugin marketplace add alirezarezvani/claude-skills
+npm i -g claude-mem
+npm i -g oh-my-claude-sisyphus
 ```
 
 When installed, employees MUST use them. Raw tools only when no skill matches the task.
