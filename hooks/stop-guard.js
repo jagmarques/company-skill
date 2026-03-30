@@ -21,15 +21,7 @@ if (fs.existsSync(cancelPath)) {
   process.exit(0);
 }
 
-// Circuit breaker: max 10 blocks then allow stop
-let count = 0;
-try { count = parseInt(fs.readFileSync(counterPath, 'utf8')) || 0; } catch (e) {}
-count++;
-try { fs.writeFileSync(counterPath, String(count)); } catch (e) {}
-if (count > 10) {
-  try { fs.unlinkSync(counterPath); } catch (e) {}
-  process.exit(0); // Allow stop, prevent infinite loop
-}
+// No limit. Runs until done or user cancels (touch .company/CANCEL).
 
 // Check criteria
 if (fs.existsSync(criteriaPath)) {
