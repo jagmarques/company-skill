@@ -36,12 +36,11 @@ echo "Skills installed"
 Step 2: Print banner as plain text (NOT Bash):
 
 ```
-  ██████╗ ██████╗ ███╗   ███╗██████╗  █████╗ ███╗   ██╗██╗   ██╗
- ██╔════╝██╔═══██╗████╗ ████║██╔══██╗██╔══██╗████╗  ██║╚██╗ ██╔╝
- ██║     ██║   ██║██╔████╔██║██████╔╝███████║██╔██╗ ██║ ╚████╔╝
- ██║     ██║   ██║██║╚██╔╝██║██╔═══╝ ██╔══██║██║╚██╗██║  ╚██╔╝
- ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║     ██║  ██║██║ ╚████║   ██║
-  ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝
+ ██████  ██████  ███  ███ ██████   █████  ███  ██ ██    ██
+██      ██    ██ ████████ ██   ██ ██   ██ ████ ██  ██  ██
+██      ██    ██ ██ ██ ██ ██████  ███████ ██ ████   ████
+██      ██    ██ ██    ██ ██      ██   ██ ██  ███    ██
+ ██████  ██████  ██    ██ ██      ██   ██ ██   ██    ██
 ```
 
 Then check if COMPANY.md exists and report how many roles found. Check if playbook.md exists.
@@ -65,7 +64,7 @@ Read `.company/playbook.md` if it exists (accumulated knowledge from past sessio
 Print as plain text (NOT Bash):
 
 ════════════════════════════════════════════════
-🏢 CYCLE {N} - THINK > EXECUTE > VERIFY
+CYCLE {N} - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
 ### THINK (Opus, all leads parallel)
@@ -106,7 +105,7 @@ Devil's Advocate attacks anything marked as passing.
 
 Print as plain text (NOT Bash):
 
-📋 CYCLE {N} VERDICT: {DONE or NOT DONE}
+CYCLE {N} VERDICT: {DONE or NOT DONE}
 {reason}
 
 ALL criteria pass + Advocate accepts = EXIT.
