@@ -23,11 +23,13 @@ Give it a goal. Run every employee. Loop until verified done.
 
 ## Preamble
 
-```bash
-echo "════════════════════════════════════════════════" && echo "             🏢 COMPANY SKILL ACTIVE" && echo "════════════════════════════════════════════════"
-[ -f COMPANY.md ] && echo "$(grep -c '^[0-9]\|^- ' COMPANY.md 2>/dev/null) roles" || echo "No COMPANY.md"
-[ -f .company/playbook.md ] && echo "Playbook loaded" || echo "First run"
-```
+Print this as plain text (NOT Bash):
+
+════════════════════════════════════════════════
+             🏢 COMPANY SKILL ACTIVE
+════════════════════════════════════════════════
+
+Then check if COMPANY.md exists and report how many roles found. Check if playbook.md exists.
 
 ## Parse
 
@@ -45,9 +47,11 @@ Read `.company/playbook.md` if it exists (accumulated knowledge from past sessio
 
 ## Loop
 
-```bash
-echo "════════════════════════════════════════════════" && echo "🏢 CYCLE {N} - THINK > EXECUTE > VERIFY" && echo "════════════════════════════════════════════════"
-```
+Print as plain text (NOT Bash):
+
+════════════════════════════════════════════════
+🏢 CYCLE {N} - THINK > EXECUTE > VERIFY
+════════════════════════════════════════════════
 
 ### THINK (Opus, all leads parallel)
 
@@ -85,9 +89,10 @@ Internal Reviewer reads criteria.json + all findings. For each criterion:
 
 Devil's Advocate attacks anything marked as passing.
 
-```bash
-echo "📋 CYCLE {N} VERDICT: {DONE or NOT DONE}" && echo "{reason}"
-```
+Print as plain text (NOT Bash):
+
+📋 CYCLE {N} VERDICT: {DONE or NOT DONE}
+{reason}
 
 ALL criteria pass + Advocate accepts = EXIT.
 Otherwise = loop with feedback.
