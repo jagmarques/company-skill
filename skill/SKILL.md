@@ -368,6 +368,82 @@ Write `.company/STATUS.md`:
 
 Update `.company/memory/` with persistent findings.
 
+## Step 6: Self-Improvement (CEO rewrites the company)
+
+After writing STATUS.md, the CEO reviews performance.json and lessons.md, then MODIFIES the actual company:
+
+**Update COMPANY.md:**
+- Employees with 3+ cycles of zero findings: add `[inactive]` tag to their role line
+- Employees with consistently high-priority findings: add `[priority]` tag
+- If a new role is needed (discovered during this session), ADD it to COMPANY.md
+- If a department produced nothing useful, add a note: `<!-- Consider removing if inactive next session -->`
+
+**Update .company/playbook.md** (new file, accumulates across ALL sessions):
+```markdown
+# Company Playbook (auto-generated, DO NOT edit manually)
+
+## Always Do First
+- {approach that worked in 3+ sessions}
+
+## Never Do
+- {approach that failed in 2+ sessions with reason}
+
+## Best Employees for Each Task Type
+- Research tasks: {employee who produces most priority 4-5 findings}
+- Code tasks: {employee who ships most working code}
+- Review tasks: {employee who catches most real issues}
+
+## Strategy Patterns
+- {pattern}: {when to use it, based on past success}
+```
+
+Leads read playbook.md at cycle start. It becomes the company's institutional knowledge.
+
+**Update the lead prompts for next session:**
+Write `.company/lead-overrides.md` with per-department adjustments:
+```markdown
+## Research Department
+- Activate first: {top performer from performance.json}
+- Skip unless needed: {employees with 0 findings last 2 sessions}
+- Priority approach: {from playbook.md "Always Do First"}
+
+## Engineering Department
+- ...
+```
+
+Next session, leads read lead-overrides.md BEFORE the briefing. This is how the company evolves.
+
+## Step 7: Dynamic Hiring and Firing
+
+The company adapts its workforce based on what the goal needs.
+
+**During THINK phase, leads can REQUEST new hires:**
+If a lead identifies a skill gap (the team can't do what's needed), they write:
+```
+HIRE REQUEST: {role name}, {what they'd do}, {why current team can't handle it}
+```
+
+The CEO reads all hire requests and:
+1. If valid, ADDS the role to COMPANY.md under the right department
+2. Creates the employee in the NEXT cycle's EXECUTE phase
+3. Logs the hire in `.company/hires.md`
+
+**After VERIFY phase, CEO can fire/deactivate:**
+Based on performance.json:
+- Employees with 0 findings for 3+ consecutive cycles: mark `[inactive]` in COMPANY.md
+- Employees whose work was REJECTED by reviewers 2+ times: mark `[inactive]`
+- `[inactive]` employees don't get spawned unless explicitly needed
+
+**Dynamic reallocation:**
+Between cycles, the CEO checks: which criteria are FAILING? What skills are missing?
+Then reassigns employees:
+- If compression research is stuck, pull the Outside-the-Box Thinker into that problem
+- If code quality is failing, pull more reviewers in
+- If a deadline is approaching, reduce research and increase engineering
+
+This means the company structure CHANGES during execution, not just between sessions.
+COMPANY.md gets updated in real-time as the company learns what it needs.
+
 Report to user. If goal was achieved, suggest next steps. If not, explain what's blocking.
 
 ## Commands
