@@ -140,15 +140,13 @@ Auto-installed on first run:
 | gstack | /review, /ship, /qa, /investigate, /browse, /office-hours |
 | GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work, /gsd:debug |
 | trailofbits | Security audit, vulnerability detection |
-| claude-mem | Persistent memory across sessions |
-| superpowers | /brainstorm, /write-plan, /execute-plan, TDD |
 
-Install manually for even more:
+Install manually for more:
 
 ```
+/plugin marketplace add obra/superpowers-marketplace
 /plugin marketplace add wshobson/agents
 /plugin marketplace add alirezarezvani/claude-skills
-/plugin marketplace add obra/superpowers-marketplace
 ```
 
 When installed, employees MUST use them. Raw tools only when no skill matches the task.
