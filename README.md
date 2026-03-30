@@ -140,6 +140,8 @@ Auto-installed on first run:
 | gstack | /review, /ship, /qa, /investigate, /browse, /office-hours |
 | GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work, /gsd:debug |
 | trailofbits | Security audit, vulnerability detection |
+| claude-mem | Persistent memory compression across sessions |
+| oh-my-claudecode | Team orchestration, 32 specialized employees, autopilot |
 
 Install manually for more:
 
