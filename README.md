@@ -40,9 +40,9 @@ Every company gets these employees automatically, even if your COMPANY.md is emp
 | CEO | THINK | Sets priorities, resolves conflicts |
 | CTO | THINK | Technical decisions, architecture |
 | Internal Reviewer | VERIFY | Checks work against goal criteria |
+| User Advocate | VERIFY | Represents the end user |
 | Devil's Advocate | VERIFY | Attacks results, finds holes |
 | Elegance Enforcer | VERIFY | Prevents over-engineering |
-| User Advocate | VERIFY | Represents the end user |
 
 If you define these roles in COMPANY.md, the skill uses your description instead. No duplicates.
 
