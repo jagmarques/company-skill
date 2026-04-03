@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="banner.svg" alt="COMPANY" width="700">
+  <img src="https://raw.githubusercontent.com/jagmarques/company-skill/main/banner.svg" alt="COMPANY" width="700">
 </p>
 
 Give it a goal. The whole company works until it's done.
