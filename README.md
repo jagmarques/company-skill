@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/jagmarques/company-skill/main/banner.svg" alt="COMPANY" width="700">
-</p>
+# Company
 
 Give it a goal. The whole company works until it's done.
 
