@@ -2,6 +2,8 @@
 
 [![npm](https://img.shields.io/npm/v/company-skill)](https://www.npmjs.com/package/company-skill) [![license](https://img.shields.io/npm/l/company-skill)](LICENSE) [![downloads](https://img.shields.io/npm/dw/company-skill)](https://www.npmjs.com/package/company-skill)
 
+> *You don't prompt agents one at a time. You write a team in markdown, hand them a goal, and go to sleep. In the morning, STATUS.md tells you what got done, what got rejected, and what the company learned. The playbook from session 3 makes session 4 faster. By session 10, the company runs itself better than you could direct it manually.*
+
 **Define your team in markdown. Give it a goal. Walk away.**
 
 A Claude Code skill that runs your entire company — CEO delegates, departments execute in parallel, built-in reviewers verify — and doesn't stop until the goal is done.
@@ -173,6 +175,27 @@ Auto-installed on first run. When installed, employees MUST use them.
   cycles/              Per-cycle briefings and reviews
   messages/            Typed findings per department
   {dept}/              Per-employee findings (persist across sessions)
+```
+
+## Design Choices
+
+Three principles behind the skill:
+
+- **One file to define the team.** COMPANY.md is the only thing you write. Everything else — delegation, task routing, quality checks — is automatic.
+- **No iteration limit.** The loop runs until criteria.json says done. Not 3 cycles. Not 5. Until the Reviewer and Devil's Advocate both accept.
+- **Self-improvement over configuration.** Instead of tuning prompts, the company learns from its own failures. The playbook accumulates across sessions. Roles get tagged `[priority]` or `[inactive]` based on performance. The system gets better by running, not by tweaking.
+
+## Project Structure
+
+```
+COMPANY.md           Your team definition (the only file you edit)
+skill/SKILL.md       The skill logic (THINK > EXECUTE > VERIFY loop)
+agents/              Subagent definitions (lead, worker, reviewer, critic, digest)
+hooks/               Stop guard, session restore, precompact
+commands/            run.md, resume.md, status.md
+examples/            Sample team configurations
+install.sh           Curl-based installer
+bin/install.js       npx installer
 ```
 
 ## Examples
