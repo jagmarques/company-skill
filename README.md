@@ -145,13 +145,20 @@ Override per employee: `- ML Scientist, experiments [opus]`
 
 ## Installed Skills
 
-Auto-installed on first run. When installed, employees MUST use them.
+Auto-installed on first run. Leads assign skills to workers by task type.
 
-| Pack | What employees get |
-|------|-------------------|
-| gstack | /review, /ship, /qa, /investigate, /browse |
-| GSD | /gsd-plan-phase, /gsd-execute-phase, /gsd-verify-work, /gsd-debug |
-| trailofbits | Security audit, vulnerability detection |
+| Task type | Skill | Pack |
+|-----------|-------|------|
+| Code review | /review | gstack |
+| Bug fix | /investigate | gstack |
+| QA testing | /qa | gstack |
+| Ship code | /ship | gstack |
+| Browse/test site | /browse | gstack |
+| Security audit | /secure-phase | trailofbits |
+| Debug with state | /gsd-debug | GSD |
+| Plan work | /gsd-plan-phase | GSD |
+
+If no skill matches the task, workers use raw tools.
 
 <details>
 <summary>Install more skill packs</summary>

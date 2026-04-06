@@ -88,6 +88,8 @@ If a lead realizes an idle employee is needed after all: add them to active rost
 
 Each worker gets: their task, their previous findings file, failed approaches from playbook.
 
+If a skill was assigned (see Skill Routing table), invoke it via the Skill tool FIRST before doing anything else.
+
 Every finding MUST have:
 ```
 FINDING: what
@@ -142,9 +144,22 @@ CEO updates COMPANY.md: tag `[inactive]` on zero-contribution roles, `[priority]
 CEO, CTO, Internal Reviewer, User Advocate, Devil's Advocate, Elegance Enforcer.
 Deduplicated if user defines them in COMPANY.md.
 
-## Skills
+## Skill Routing
 
-When installed: MUST use /review for code review, /investigate for bugs, /qa for testing, /ship for PRs. Skills are installed in the Preamble.
+Leads MUST assign a skill when the task matches. Workers MUST invoke it via the Skill tool.
+
+| Task type | Skill | When |
+|-----------|-------|------|
+| Code review | /review | Any PR or diff needs review before merging |
+| Bug fix | /investigate | Root cause unknown, need systematic debugging |
+| QA testing | /qa | Test a web app, find and fix bugs |
+| Ship code | /ship | Create PR, run tests, push |
+| Security audit | /secure-phase | Check for vulnerabilities in code |
+| Debug with state | /gsd-debug | Complex bug needing persistent debug session |
+| Plan work | /gsd-plan-phase | Break complex task into steps |
+| Browse/test site | /browse | Navigate URLs, check page state, screenshots |
+
+If no skill matches, workers use raw tools (Read, Write, Bash, etc.).
 
 ## Stop Hook
 
