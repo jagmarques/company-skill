@@ -1,91 +1,135 @@
-# Company
+# /company
 
-Give it a goal. The whole company works until it's done.
+[![npm](https://img.shields.io/npm/v/company-skill)](https://www.npmjs.com/package/company-skill) [![license](https://img.shields.io/npm/l/company-skill)](LICENSE) [![downloads](https://img.shields.io/npm/dw/company-skill)](https://www.npmjs.com/package/company-skill)
+
+**Define your team in markdown. Give it a goal. Walk away.**
+
+A Claude Code skill that runs your entire company — CEO delegates, departments execute in parallel, built-in reviewers verify — and doesn't stop until the goal is done.
 
 ```
 /company "Build the user auth system with OAuth2"
 ```
 
-A Claude Code skill that reads your team structure from `COMPANY.md`, runs every employee in loops, and doesn't stop until built-in reviewers verify the goal is met.
+## Why /company
 
-## Install
+| | Without /company | With /company |
+|---|---|---|
+| Task routing | You manually prompt each agent | CEO reads the goal, picks relevant employees, delegates |
+| Quality gates | Hope it's correct | Reviewer + Devil's Advocate + Elegance Enforcer triple-check |
+| Knowledge retention | Lost every session | Playbook accumulates what worked, what failed, what's faster |
+| Parallelism | One agent at a time | All departments run in parallel |
+| Stopping condition | You decide when it's done | criteria.json blocks exit until ALL criteria pass |
 
+## Quick Start
+
+**1. Install**
 ```bash
 npx company-skill install
 ```
 
-Or from git:
-```bash
-curl -sL https://raw.githubusercontent.com/jagmarques/company-skill/main/install.sh | bash
+**2. Define your team** (optional — a minimal company is created automatically)
+```markdown
+## Engineering
+- Backend Lead, API design and database architecture
+- Frontend Dev, React components and state management
+
+## Research
+- ML Scientist, model experiments and benchmarks
 ```
 
-Edit `COMPANY.md` with your team. Or skip it, the skill creates a minimal company automatically.
+**3. Run**
+```
+/company "Build a REST API for user management with tests"
+```
 
 ## How It Works
 
+```mermaid
+graph LR
+    G[GOAL] --> T[THINK]
+    T -->|Opus: CEO + leads assign tasks| E[EXECUTE]
+    E -->|Sonnet: workers do the work| V[VERIFY]
+    V -->|Opus: Reviewer + Advocate| D{Done?}
+    D -->|NO: feedback| T
+    D -->|YES| S[STATUS.md]
 ```
-GOAL: "Build the auth system"
 
-  THINK     CEO picks relevant employees, leads assign tasks
-  EXECUTE   Employees do the work, use installed skills
-  VERIFY    Reviewer checks criteria.json, Advocate attacks results
+The loop does NOT stop until the Reviewer confirms all criteria pass AND the Devil's Advocate accepts. There is no iteration limit.
 
-  Not done? Loop back with feedback.
-  Done? Update playbook, write STATUS.md.
-```
+<details>
+<summary><strong>THINK</strong> — CEO picks relevant employees, leads assign tasks</summary>
 
-The loop runs until ALL criteria in `criteria.json` pass. A Stop Hook blocks Claude from exiting early. To cancel: `touch .company/CANCEL`.
+The CEO reads the goal and COMPANY.md, decides which departments and employees are relevant (a mobile app goal doesn't need a Topologist), writes an active roster, then launches all department leads in parallel. Each lead assigns tasks to their employees with one sentence, one skill, and context.
+
+If a lead sees a skill gap, they write `HIRE: {role}, {why}` and the CEO adds it to the team.
+</details>
+
+<details>
+<summary><strong>EXECUTE</strong> — All workers run in parallel with installed skills</summary>
+
+Every employee gets their task, previous findings, and failed approaches from the playbook. Every finding must have a source — file path, URL, or command output. Novel ideas use "NOVEL — needs validation" and the reviewer adds a validation criterion. No source = rejected.
+</details>
+
+<details>
+<summary><strong>VERIFY</strong> — Triple quality gate blocks premature completion</summary>
+
+**Internal Reviewer** checks each criterion in criteria.json against evidence. No evidence? Stays `false`.
+
+**Devil's Advocate** attacks anything marked as passing. "Is this actually complete or surface-level? What edge cases were missed?"
+
+**Elegance Enforcer** asks "Can this be simpler? Does every component justify its existence?"
+
+All three must accept before the loop exits.
+</details>
 
 ## Goal Enforcement
 
-The skill creates `criteria.json` with checkable success criteria:
+The skill creates `criteria.json` with machine-checkable success criteria:
 
 ```json
-{"goal":"Build auth","criteria":[
-  {"id":1,"description":"OAuth2 login works with Google","passes":false,"evidence":null},
-  {"id":2,"description":"All tests pass","passes":false,"evidence":null}
+{"goal": "Build auth", "criteria": [
+  {"id": 1, "description": "OAuth2 login works with Google", "passes": false, "evidence": null},
+  {"id": 2, "description": "All tests pass", "passes": false, "evidence": null}
 ]}
 ```
 
-The reviewer updates `passes` to `true` with evidence as work completes. The stop hook reads this file and blocks exit until everything passes.
+A Stop Hook reads this file and **blocks Claude from exiting** until every criterion passes. To cancel: `touch .company/CANCEL`.
 
-## Self-Improvement
+## Self-Improving Playbook
 
 One file: `.company/playbook.md`. Accumulates across sessions.
 
-After each session, the CEO writes:
-- WORKED: what succeeded (with evidence)
-- FAILED: what failed, USE INSTEAD: what works, WHY: the difference
-- INEFFICIENT: what was slow, FASTER: better approach
-- TOP: best employees for priority activation next time
-- HIRE/FIRE: roles added or deactivated
+After each session, the CEO writes what worked, what failed (and what to use instead), what was slow (and what's faster), which employees performed best, and which roles to hire or deactivate. Leads read the playbook before every THINK phase.
 
-Leads read the playbook before every THINK phase. Employees check failed approaches before proposing new ones. The company that starts session 5 is smarter than session 1.
+**The company that starts session 5 is smarter than session 1.**
 
-The CEO also updates COMPANY.md: tags `[inactive]` on zero-contribution roles, `[priority]` on top performers, adds hired roles, evolves employee descriptions based on what they're good at.
+The CEO also evolves COMPANY.md: tags `[inactive]` on zero-contribution roles, `[priority]` on top performers, and updates employee descriptions based on what they're actually good at.
 
 ## Built-In Roles
 
-Every company gets these automatically:
+Every company gets these automatically (deduplicated if you define them in COMPANY.md):
 
-| Role | Phase | What they do |
-|------|-------|-------------|
-| CEO | THINK | Picks relevant employees for the goal, resolves conflicts |
-| CTO | THINK | Technical decisions, architecture |
+| Role | Phase | Purpose |
+|------|-------|---------|
+| CEO | THINK | Reads goal, picks relevant employees, resolves conflicts |
+| CTO | THINK | Technical decisions, architecture review |
 | Internal Reviewer | VERIFY | Checks criteria.json, rejects findings without sources |
-| User Advocate | VERIFY | Represents the end user |
-| Devil's Advocate | VERIFY | Attacks results, finds holes |
-| Elegance Enforcer | VERIFY | Prevents over-engineering |
+| User Advocate | VERIFY | "Would a real user understand this?" |
+| Devil's Advocate | VERIFY | Attacks results, finds holes, prevents false completion |
+| Elegance Enforcer | VERIFY | Prevents over-engineering, kills unnecessary complexity |
 
-Deduplicated if you define them in COMPANY.md.
+A 2-person COMPANY.md (Backend Dev + Frontend Dev) automatically gets CEO + CTO + both devs + all 4 reviewers = **8 employees running**.
 
-## Source Citations
+## Model Assignment
 
-Every finding needs a source:
-- Existing claims: file path, URL, or command output
-- Novel ideas: "NOVEL - needs validation" (reviewer adds a validation criterion)
+| Phase | Model | Who |
+|-------|-------|-----|
+| THINK | Opus | CEO, CTO, department leads |
+| EXECUTE | Sonnet | Workers |
+| VERIFY | Opus | All reviewers |
+| COMPRESS | Haiku | Digest writer |
 
-No source = rejected by reviewer.
+Override per employee: `- ML Scientist, experiments [opus]`
 
 ## Commands
 
@@ -97,66 +141,32 @@ No source = rejected by reviewer.
 /company:resume         Continue from last session
 ```
 
-## Visual Indicators
-
-```
-════════════════════════════════════════════════
-CYCLE 1 - THINK > EXECUTE > VERIFY
-════════════════════════════════════════════════
-
-CYCLE 1 VERDICT: NOT DONE
-Missing validation of compression ratios
-```
-
-Employees show with colors: leads (cyan), workers (green), reviewers (yellow), digest (gray).
-
-## Agents
-
-| Agent | Phase | Color |
-|-------|-------|-------|
-| company-lead | THINK | Cyan |
-| company-worker | EXECUTE | Green |
-| company-reviewer | VERIFY | Yellow |
-| company-critic | VERIFY | Yellow |
-| company-digest | COMPRESS | Gray |
-
-## Model Assignment
-
-| Phase | Model | Who |
-|-------|-------|-----|
-| THINK | Opus | CEO, CTO, leads |
-| EXECUTE | Sonnet | Workers |
-| VERIFY | Opus | Reviewers |
-| COMPRESS | Haiku | Digest writer |
-
-Override per employee: `- ML Scientist, experiments [opus]`
-
 ## Installed Skills
 
-Auto-installed on first run:
+Auto-installed on first run. When installed, employees MUST use them.
 
 | Pack | What employees get |
 |------|-------------------|
-| gstack | /review, /ship, /qa, /investigate, /browse, /office-hours |
-| GSD | /gsd:plan-phase, /gsd:execute-phase, /gsd:verify-work, /gsd:debug |
+| gstack | /review, /ship, /qa, /investigate, /browse |
+| GSD | /gsd-plan-phase, /gsd-execute-phase, /gsd-verify-work, /gsd-debug |
 | trailofbits | Security audit, vulnerability detection |
 
-Install manually for more:
+<details>
+<summary>Install more skill packs</summary>
 
 ```
 /plugin marketplace add obra/superpowers-marketplace
 /plugin marketplace add wshobson/agents
 /plugin marketplace add alirezarezvani/claude-skills
 ```
-
-When installed, employees MUST use them.
+</details>
 
 ## What Gets Created
 
 ```
 .company/
   criteria.json        Machine-checkable goal state
-  playbook.md          Accumulated lessons (self-improvement)
+  playbook.md          Accumulated lessons (THE self-improvement file)
   active-roster.md     Employees activated for this goal
   active-tasks.md      Deduplicated task list
   STATUS.md            Final report
