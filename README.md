@@ -75,14 +75,20 @@ Every employee gets their task, previous findings, and failed approaches from th
 <details>
 <summary><strong>VERIFY</strong> — Triple quality gate blocks premature completion</summary>
 
-**Internal Reviewer** checks each criterion in criteria.json against evidence. No evidence? Stays `false`.
+**Internal Reviewer** checks each criterion in criteria.json against evidence. No evidence? Stays `false`. Also scans all public-facing output for unverified claims about external projects — any number, percentage, or technical detail cited from memory gets blocked until verified from source.
 
-**Devil's Advocate** attacks anything marked as passing. "Is this actually complete or surface-level? What edge cases were missed?"
+**Devil's Advocate** attacks anything marked as passing. "Is this actually complete or surface-level? What edge cases were missed?" For any claim about external projects: "did you actually verify this from their repo/docs, or are you guessing?"
 
 **Elegance Enforcer** asks "Can this be simpler? Does every component justify its existence?"
 
 All three must accept before the loop exits.
 </details>
+
+## External Fact Verification
+
+Workers producing public-facing output (GitHub comments, PRs, blog posts) must verify every claim about external projects from their actual docs/source before publishing. No citing from memory. The reviewer blocks unverified external claims automatically.
+
+**One strike rule:** if corrected by someone, respond "my bad, you're right" and stop. Never attempt a second correction with more guessed details.
 
 ## Goal Enforcement
 
