@@ -90,6 +90,8 @@ Each worker gets: their task, their previous findings file, failed approaches fr
 
 If a skill was assigned (see Skill Routing table), invoke it via the Skill tool FIRST before doing anything else.
 
+**EXTERNAL FACT RULE (highest priority):** Before writing ANY public-facing output (GitHub comments, PR descriptions, emails, blog posts) that states a specific fact about an external project (version numbers, API details, feature claims, architecture, block formats), the worker MUST verify it first using WebFetch or `gh api` to read the project's actual docs/source/README. If it cannot verify, it must say "not sure" instead of guessing. NEVER cite external numbers from memory. ONE STRIKE: if corrected, respond "my bad, you're right" and stop — never attempt a second correction with more guessed details.
+
 Every finding MUST have:
 ```
 FINDING: what
@@ -104,8 +106,9 @@ Novel ideas (new techniques, hypotheses, untested approaches) use "NOVEL - needs
 Internal Reviewer reads criteria.json + all findings. For each criterion:
 - Evidence exists with source? Set passes: true in criteria.json
 - No evidence or source missing? Keep passes: false
+- **External fact check:** Scan every outgoing comment/email/blog for claims about external projects (numbers, percentages, technical details, feature comparisons). If any claim wasn't verified from the actual source (repo, docs, README), BLOCK the output and send the worker back to verify. Memory-based claims about external projects = automatic rejection.
 
-Devil's Advocate attacks anything marked as passing.
+Devil's Advocate attacks anything marked as passing. **Specifically for external claims:** ask "did you actually verify this from their repo/docs, or are you guessing?" for every statement about a competitor or external project.
 
 Print as plain text (NOT Bash):
 
