@@ -234,4 +234,8 @@ Long autonomous runs eventually fill the model's context window. Instead of manu
 
 It refreshes the on-disk state (`criteria.json`, `STATUS.md`, `NEXT.md`, playbook) and emits a single self-contained continuation prompt: goal, a trust-nothing re-derivation first step, the exact merged/in-flight/pending state with PR numbers and commit SHAs, the pending task list, founder-gated waits, the rules and gates to honor, and the environment. Copy that block, `/clear`, and paste it into a new session to resume with zero lost state.
 
-Automatic at 50%: when context usage crosses ~50%, `/company` runs this procedure on its own (as soon as the current step is safe to pause) so you get the handoff prompt without asking. Below 50% it only runs on the explicit command.
+Mandatory debate: the prompt is never hand-written. The procedure runs a Source-Verifier + Devil's-Advocate + Completeness pass to re-derive every SHA / PR / CI / prod claim live before emitting, and outputs only the prompt block (no trailing commentary).
+
+When it fires automatically - and the honest limits:
+- **At compaction (the reliable trigger).** Claude Code has no hook that fires at a context percentage. The closest hard wiring is compaction: the `PreCompact` hook (`hooks/precompact.js`) snapshots state to `.company/.checkpoint.md`, and the post-compaction `SessionStart` hook (`hooks/session-restore.js`, matcher `compact`) injects an instruction telling the model to run `/company restart` and emit the handoff. This is wired and survives compaction, but `PreCompact` is shell-only so it cannot itself emit the prompt - the model does that right after, nudged by the restore hook.
+- **~50% is best-effort, not mechanical.** The skill instructs the model to self-trigger when it sees a context-usage warning >= 50%, but nothing enforces it (no 50% hook exists), so it may not fire until compaction. Treat `/company restart` typed manually as the dependable control.
