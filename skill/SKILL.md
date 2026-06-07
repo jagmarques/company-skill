@@ -180,3 +180,21 @@ Cancel: `touch .company/CANCEL`
   messages/        ← typed findings per department
   {dept}/          ← per-employee findings (persist across sessions)
 ```
+
+## Restart mode (`/company restart`) - context handoff
+
+Invoked as `/company restart`. Purpose: when the live session's context is filling up, emit ONE self-contained continuation prompt the founder can paste into a fresh session (after `/clear`) so `/company` resumes with zero lost state and no manual back-and-forth.
+
+Auto-trigger: when a context-usage warning of **>= 50%** appears (the harness emits these as system reminders), proactively run this restart procedure WITHOUT being asked, as soon as the current atomic step is safe to pause. Below 50%, only run it when the founder types `/company restart`. Run it at most once per ~10% of additional context climbed.
+
+The restart prompt MUST be a single fenced block the founder can copy verbatim, and MUST contain:
+1. **GOAL + mode** for the resumed session (founder-mode, autonomous, loop-until-done).
+2. **FIRST ACTION = trust-nothing re-derivation (CLAUDE.md 1.13):** the very first instruction tells the resumed session to re-derive every claim below as a reproduced artifact (git rev-parse origin/main, gh pr view/checks, CI-log greps, prod probes) - the handoff is a hypothesis, not evidence.
+3. **STATE, re-derive all:** merged work (PR# + SHA), in-flight work (PR# + branch + HEAD SHA + exact CI/merge state), pending tasks, each with enough detail to resume.
+4. **PENDING / NEXT tasks** verbatim from `~/.company/NEXT.md` (or pointer to it).
+5. **Founder-gated one-way doors** that still WAIT.
+6. **Gates to honor:** the load-bearing CLAUDE.md rules (1.1 cite, 1.6 >=4-role debate, 1.13 trust-nothing, 2.3 threat-model, 4.9 CRAP, comment hygiene, forbidden-token sweep, branch-protection, single serial runner), the company-skill debate discipline, and checkpoint/cleanup (4.4).
+7. **ENVIRONMENT:** repo paths, worktree-per-stream, prod access, local-check limits (darwin can't import; ruff+ast+radon+tenant-guard only).
+8. **Brutally honest STATUS** of what is NOT done and why.
+
+Procedure: (a) refresh `~/.company/{criteria.json,STATUS.md,NEXT.md}` + playbook + memory FIRST (so the prompt points at fresh artifacts); (b) re-derive the live state cheaply (don't trust prior STATUS); (c) emit the single continuation block. Keep it complete over terse - it replaces the founder having to hand-assemble it.

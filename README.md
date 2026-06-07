@@ -223,3 +223,15 @@ bin/install.js       npx installer
 ## License
 
 MIT
+
+## Restarting when context fills up (`/company restart`)
+
+Long autonomous runs eventually fill the model's context window. Instead of manually re-explaining the whole state to a fresh session, run:
+
+```
+/company restart
+```
+
+It refreshes the on-disk state (`criteria.json`, `STATUS.md`, `NEXT.md`, playbook) and emits a single self-contained continuation prompt: goal, a trust-nothing re-derivation first step, the exact merged/in-flight/pending state with PR numbers and commit SHAs, the pending task list, founder-gated waits, the rules and gates to honor, and the environment. Copy that block, `/clear`, and paste it into a new session to resume with zero lost state.
+
+Automatic at 50%: when context usage crosses ~50%, `/company` runs this procedure on its own (as soon as the current step is safe to pause) so you get the handoff prompt without asking. Below 50% it only runs on the explicit command.
