@@ -2,34 +2,30 @@
 
 [![npm](https://img.shields.io/npm/v/company-skill)](https://www.npmjs.com/package/company-skill) [![license](https://img.shields.io/npm/l/company-skill)](LICENSE) [![downloads](https://img.shields.io/npm/dw/company-skill)](https://www.npmjs.com/package/company-skill)
 
-> *You don't prompt agents one at a time. You write a team in markdown, hand them a goal, and go to sleep. In the morning, STATUS.md tells you what got done, what got rejected, and what the company learned. The playbook from session 3 makes session 4 faster. By session 10, the company runs itself better than you could direct it manually.*
-
 **Define your team in markdown. Give it a goal. Walk away.**
 
-A Claude Code skill that runs your entire company — CEO delegates, departments execute in parallel, built-in reviewers verify — and doesn't stop until the goal is done.
+A Claude Code skill that runs your whole company. The CEO delegates, departments execute in parallel, and built-in reviewers verify the work before it counts as done. The loop keeps running until the goal is met.
 
 ```
 /company "Build the user auth system with OAuth2"
 ```
 
+You write the team once in COMPANY.md and hand over a goal. By the morning STATUS.md tells you what shipped, what got rejected, and what the run learned. The playbook from one session carries into the next, so later sessions move faster than the first.
+
 ## Why /company
 
-| | Without /company | With /company |
-|---|---|---|
-| Task routing | You manually prompt each agent | CEO reads the goal, picks relevant employees, delegates |
-| Quality gates | Hope it's correct | Reviewer + Devil's Advocate + Elegance Enforcer triple-check |
-| Knowledge retention | Lost every session | Playbook accumulates what worked, what failed, what's faster |
-| Parallelism | One agent at a time | All departments run in parallel |
-| Stopping condition | You decide when it's done | criteria.json blocks exit until ALL criteria pass |
+Run a goal yourself and you prompt each agent in turn, hope the output is right, lose every lesson when the session ends, work one agent at a time, and decide on your own when things are finished.
 
-## Quick Start
+With /company the CEO reads the goal and picks the relevant employees. Three reviewers (Reviewer, Devil's Advocate, Elegance Enforcer) check the work. The playbook keeps what worked and what failed across sessions. Departments run at the same time. And criteria.json holds the exit shut until every criterion passes.
+
+## Quick start
 
 **1. Install**
 ```bash
 npx company-skill install
 ```
 
-**2. Define your team** (optional — a minimal company is created automatically)
+**2. Define your team.** This step is optional. If you skip it, a minimal company is created for you.
 ```markdown
 ## Engineering
 - Backend Lead, API design and database architecture
@@ -44,7 +40,7 @@ npx company-skill install
 /company "Build a REST API for user management with tests"
 ```
 
-## How It Works
+## How it works
 
 ```mermaid
 graph LR
@@ -56,43 +52,43 @@ graph LR
     D -->|YES| S[STATUS.md]
 ```
 
-The loop does NOT stop until the Reviewer confirms all criteria pass AND the Devil's Advocate accepts. There is no iteration limit.
+The loop stops only when the Reviewer confirms every criterion passes and the Devil's Advocate accepts. There is no iteration limit.
 
 <details>
-<summary><strong>THINK</strong> — CEO picks relevant employees, leads assign tasks</summary>
+<summary><strong>THINK</strong>, CEO picks relevant employees, leads assign tasks</summary>
 
-The CEO reads the goal and COMPANY.md, decides which departments and employees are relevant (a mobile app goal doesn't need a Topologist), writes an active roster, then launches all department leads in parallel. Each lead assigns tasks to their employees with one sentence, one skill, and context.
+The CEO reads the goal and COMPANY.md, decides which departments and employees are relevant (a mobile app goal does not need a Topologist), writes an active roster, then launches all department leads in parallel. Each lead hands their employees a task in one sentence with a skill and the context they need.
 
-If a lead sees a skill gap, they write `HIRE: {role}, {why}` and the CEO adds it to the team.
+If a lead spots a skill gap, they write `HIRE: {role}, {why}` and the CEO adds it to the team.
 </details>
 
 <details>
-<summary><strong>EXECUTE</strong> — All workers run in parallel with installed skills</summary>
+<summary><strong>EXECUTE</strong>, all workers run in parallel with installed skills</summary>
 
-Every employee gets their task, previous findings, and failed approaches from the playbook. Every finding must have a source — file path, URL, or command output. Novel ideas use "NOVEL — needs validation" and the reviewer adds a validation criterion. No source = rejected.
+Every employee gets their task, the previous findings, and the failed approaches from the playbook. Every finding must cite a source: a file path, a URL, or command output. Novel ideas get tagged "NOVEL, needs validation" and the reviewer adds a validation criterion for them. No source means the finding is rejected.
 </details>
 
 <details>
-<summary><strong>VERIFY</strong> — Triple quality gate blocks premature completion</summary>
+<summary><strong>VERIFY</strong>, the quality gate that blocks premature completion</summary>
 
-**Internal Reviewer** checks each criterion in criteria.json against evidence. No evidence? Stays `false`. Also scans all public-facing output for unverified claims about external projects — any number, percentage, or technical detail cited from memory gets blocked until verified from source.
+The Internal Reviewer checks each criterion in criteria.json against the evidence. No evidence keeps it `false`. It also scans public-facing output for unverified claims about external projects. Any number, percentage, or technical detail cited from memory is blocked until it is verified from source.
 
-**Devil's Advocate** attacks anything marked as passing. "Is this actually complete or surface-level? What edge cases were missed?" For any claim about external projects: "did you actually verify this from their repo/docs, or are you guessing?"
+The Devil's Advocate attacks anything marked as passing. Is this actually complete or only surface-level? What edge cases were missed? For any claim about an external project, did you verify it from their repo or docs, or are you guessing?
 
-**Elegance Enforcer** asks "Can this be simpler? Does every component justify its existence?"
+The Elegance Enforcer asks whether the work can be simpler and whether every component earns its place.
 
-All three must accept before the loop exits.
+All three have to accept before the loop exits.
 </details>
 
-## External Fact Verification
+## External fact verification
 
-Workers producing public-facing output (GitHub comments, PRs, blog posts) must verify every claim about external projects from their actual docs/source before publishing. No citing from memory. The reviewer blocks unverified external claims automatically.
+Workers producing public output (GitHub comments, PRs, blog posts) verify every claim about external projects against the actual docs or source before publishing. No citing from memory. The reviewer blocks unverified external claims on its own.
 
-**One strike rule:** if corrected by someone, respond "my bad, you're right" and stop. Never attempt a second correction with more guessed details.
+One strike rule: if someone corrects you, reply "my bad, you're right" and stop. Do not try a second correction with more guessed detail.
 
-## Goal Enforcement
+## Goal enforcement
 
-The skill creates `criteria.json` with machine-checkable success criteria:
+The skill writes a `criteria.json` with machine-checkable success criteria:
 
 ```json
 {"goal": "Build auth", "criteria": [
@@ -101,43 +97,37 @@ The skill creates `criteria.json` with machine-checkable success criteria:
 ]}
 ```
 
-A Stop Hook reads this file and **blocks Claude from exiting** until every criterion passes. To cancel: `touch .company/CANCEL`.
+A Stop Hook reads this file and blocks Claude from exiting until every criterion passes. To cancel, run `touch .company/CANCEL`.
 
-## Self-Improving Playbook
+## Self-improving playbook
 
-One file: `.company/playbook.md`. Accumulates across sessions.
+Everything lives in one file, `.company/playbook.md`, and it grows across sessions.
 
-After each session, the CEO writes what worked, what failed (and what to use instead), what was slow (and what's faster), which employees performed best, and which roles to hire or deactivate. Leads read the playbook before every THINK phase.
+After each session the CEO records what worked, what failed and what to use instead, what was slow and what is faster, which employees did best, and which roles to hire or deactivate. Leads read the playbook before every THINK phase, so a run that starts at session 5 knows more than it did at session 1.
 
-**The company that starts session 5 is smarter than session 1.**
+The CEO also keeps COMPANY.md current. It tags `[inactive]` on roles that contributed nothing, `[priority]` on the strong performers, and rewrites employee descriptions to match what each one is actually good at.
 
-The CEO also evolves COMPANY.md: tags `[inactive]` on zero-contribution roles, `[priority]` on top performers, and updates employee descriptions based on what they're actually good at.
+## Built-in roles
 
-## Built-In Roles
+Every company gets these automatically, deduplicated if you also define them in COMPANY.md.
 
-Every company gets these automatically (deduplicated if you define them in COMPANY.md):
+* CEO (THINK): reads the goal, picks relevant employees, resolves conflicts.
+* CTO (THINK): technical decisions and architecture review.
+* Internal Reviewer (VERIFY): checks criteria.json, rejects findings without sources.
+* User Advocate (VERIFY): asks whether a real user would understand this.
+* Devil's Advocate (VERIFY): attacks results, finds holes, prevents false completion.
+* Elegance Enforcer (VERIFY): prevents over-engineering, kills unnecessary complexity.
 
-| Role | Phase | Purpose |
-|------|-------|---------|
-| CEO | THINK | Reads goal, picks relevant employees, resolves conflicts |
-| CTO | THINK | Technical decisions, architecture review |
-| Internal Reviewer | VERIFY | Checks criteria.json, rejects findings without sources |
-| User Advocate | VERIFY | "Would a real user understand this?" |
-| Devil's Advocate | VERIFY | Attacks results, finds holes, prevents false completion |
-| Elegance Enforcer | VERIFY | Prevents over-engineering, kills unnecessary complexity |
+So a two-person COMPANY.md (Backend Dev plus Frontend Dev) ends up running eight employees: CEO, CTO, both devs, and all four reviewers.
 
-A 2-person COMPANY.md (Backend Dev + Frontend Dev) automatically gets CEO + CTO + both devs + all 4 reviewers = **8 employees running**.
+## Model assignment
 
-## Model Assignment
+* THINK runs on Opus: CEO, CTO, department leads.
+* EXECUTE runs on Sonnet: the workers.
+* VERIFY runs on Opus: all reviewers.
+* COMPRESS runs on Haiku: the digest writer.
 
-| Phase | Model | Who |
-|-------|-------|-----|
-| THINK | Opus | CEO, CTO, department leads |
-| EXECUTE | Sonnet | Workers |
-| VERIFY | Opus | All reviewers |
-| COMPRESS | Haiku | Digest writer |
-
-Override per employee: `- ML Scientist, experiments [opus]`
+Override per employee like this: `- ML Scientist, experiments [opus]`
 
 ## Commands
 
@@ -149,22 +139,20 @@ Override per employee: `- ML Scientist, experiments [opus]`
 /company:resume         Continue from last session
 ```
 
-## Installed Skills
+## Installed skills
 
-Auto-installed on first run. Leads assign skills to workers by task type.
+These install on first run. Leads match a skill to each worker by task type.
 
-| Task type | Skill | Pack |
-|-----------|-------|------|
-| Code review | /review | gstack |
-| Bug fix | /investigate | gstack |
-| QA testing | /qa | gstack |
-| Ship code | /ship | gstack |
-| Browse/test site | /browse | gstack |
-| Security audit | /secure-phase | trailofbits |
-| Debug with state | /gsd-debug | GSD |
-| Plan work | /gsd-plan-phase | GSD |
+* Code review uses /review (gstack).
+* Bug fixes use /investigate (gstack).
+* QA testing uses /qa (gstack).
+* Shipping code uses /ship (gstack).
+* Browsing or testing a site uses /browse (gstack).
+* Security audits use /secure-phase (trailofbits).
+* Stateful debugging uses /gsd-debug (GSD).
+* Planning work uses /gsd-plan-phase (GSD).
 
-If no skill matches the task, workers use raw tools.
+When no skill matches the task, workers fall back to raw tools.
 
 <details>
 <summary>Install more skill packs</summary>
@@ -176,7 +164,7 @@ If no skill matches the task, workers use raw tools.
 ```
 </details>
 
-## What Gets Created
+## What gets created
 
 ```
 .company/
@@ -190,15 +178,17 @@ If no skill matches the task, workers use raw tools.
   {dept}/              Per-employee findings (persist across sessions)
 ```
 
-## Design Choices
+## Design choices
 
-Three principles behind the skill:
+Three ideas shape the skill.
 
-- **One file to define the team.** COMPANY.md is the only thing you write. Everything else — delegation, task routing, quality checks — is automatic.
-- **No iteration limit.** The loop runs until criteria.json says done. Not 3 cycles. Not 5. Until the Reviewer and Devil's Advocate both accept.
-- **Self-improvement over configuration.** Instead of tuning prompts, the company learns from its own failures. The playbook accumulates across sessions. Roles get tagged `[priority]` or `[inactive]` based on performance. The system gets better by running, not by tweaking.
+One file defines the team. COMPANY.md is the only thing you write. Delegation, task routing, and quality checks all happen on their own.
 
-## Project Structure
+No iteration limit. The loop runs until criteria.json says it is done, however many cycles that takes, and only once the Reviewer and the Devil's Advocate both accept.
+
+Self-improvement over configuration. Rather than tune prompts, the company learns from its own failures. The playbook grows across sessions, roles get tagged `[priority]` or `[inactive]` by performance, and the system improves by running rather than by tweaking.
+
+## Project structure
 
 ```
 COMPANY.md           Your team definition (the only file you edit)
@@ -213,12 +203,10 @@ bin/install.js       npx installer
 
 ## Examples
 
-| File | Team |
-|------|------|
-| [`startup.md`](examples/startup.md) | 10-person startup |
-| [`research-lab.md`](examples/research-lab.md) | Academic group |
-| [`dev-team.md`](examples/dev-team.md) | Dev sprint |
-| [`nexusquant.md`](examples/nexusquant.md) | Full research company |
+* [`startup.md`](examples/startup.md): a 10-person startup.
+* [`research-lab.md`](examples/research-lab.md): an academic group.
+* [`dev-team.md`](examples/dev-team.md): a dev sprint.
+* [`nexusquant.md`](examples/nexusquant.md): a full research company.
 
 ## License
 
@@ -226,16 +214,17 @@ MIT
 
 ## Restarting when context fills up (`/company restart`)
 
-Long autonomous runs eventually fill the model's context window. Instead of manually re-explaining the whole state to a fresh session, run:
+A long autonomous run will eventually fill the model's context window. Instead of re-explaining the whole state to a fresh session by hand, run:
 
 ```
 /company restart
 ```
 
-It refreshes the on-disk state (`criteria.json`, `STATUS.md`, `NEXT.md`, playbook) and emits a single self-contained continuation prompt: goal, a trust-nothing re-derivation first step, the exact merged/in-flight/pending state with PR numbers and commit SHAs, the pending task list, founder-gated waits, the rules and gates to honor, and the environment. Copy that block, `/clear`, and paste it into a new session to resume with zero lost state.
+It refreshes the on-disk state (`criteria.json`, `STATUS.md`, `NEXT.md`, the playbook) and emits one self-contained continuation prompt. That prompt carries the goal, a trust-nothing re-derivation first step, the exact merged, in-flight, and pending state with PR numbers and commit SHAs, the pending task list, the founder-gated waits, the rules and gates to honor, and the environment. Copy the block, run `/clear`, paste it into a new session, and you resume with nothing lost.
 
-Mandatory debate: the prompt is never hand-written. The procedure runs a Source-Verifier + Devil's-Advocate + Completeness pass to re-derive every SHA / PR / CI / prod claim live before emitting, and outputs only the prompt block (no trailing commentary).
+The prompt is never hand-written. The procedure runs a Source-Verifier, Devil's-Advocate, and Completeness pass to re-derive every SHA, PR, CI, and prod claim live before it emits, and it outputs only the prompt block with no trailing commentary.
 
-When it fires automatically - and the honest limits:
-- **At compaction (the reliable trigger).** Claude Code has no hook that fires at a context percentage. The closest hard wiring is compaction: the `PreCompact` hook (`hooks/precompact.js`) snapshots state to `.company/.checkpoint.md`, and the post-compaction `SessionStart` hook (`hooks/session-restore.js`, matcher `compact`) injects an instruction telling the model to run `/company restart` and emit the handoff. This is wired and survives compaction, but `PreCompact` is shell-only so it cannot itself emit the prompt - the model does that right after, nudged by the restore hook.
-- **~50% is best-effort, not mechanical.** The skill instructs the model to self-trigger when it sees a context-usage warning >= 50%, but nothing enforces it (no 50% hook exists), so it may not fire until compaction. Treat `/company restart` typed manually as the dependable control.
+When it fires on its own, and the honest limits:
+
+* At compaction, the reliable trigger. Claude Code has no hook that fires at a context percentage. The closest hard wiring is compaction. The `PreCompact` hook (`hooks/precompact.js`) snapshots state to `.company/.checkpoint.md`, and the post-compaction `SessionStart` hook (`hooks/session-restore.js`, matcher `compact`) injects an instruction telling the model to run `/company restart` and emit the handoff. This is wired and survives compaction. `PreCompact` is shell-only, so it cannot emit the prompt itself. The model does that right after, nudged by the restore hook.
+* Around 50 percent is best-effort, not mechanical. The skill tells the model to self-trigger when it sees a context-usage warning at or above 50 percent, but nothing enforces it. No 50 percent hook exists, so it may not fire until compaction. Treat `/company restart` typed by hand as the dependable control.
