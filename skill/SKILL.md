@@ -208,3 +208,7 @@ Procedure: (a) refresh `~/.company/{criteria.json,STATUS.md,NEXT.md}` + playbook
 3. **Completeness Critic** (1 sub-agent or the Reviewer): check NOTHING pending is dropped - every open PR, every uncommitted/incomplete worker, every founder-gated wait, every gate, every carryover in NEXT.md is represented.
 
 Only after their corrections are folded in is the prompt emitted, as a single fenced block, with a one-line citation of the debate (1.1). If the founder asks "are you sure / did you debate it" the answer must already be yes because this gate ran. If sub-agents are unavailable (rate limit), say so explicitly and mark each unverified claim "UNVERIFIED" rather than asserting it. Keep concurrent sub-agents <= 3 and retry transient failures - do not skip the gate because of an error.
+
+### Output discipline
+
+The restart output is ONLY the single fenced prompt block - nothing after it. The founder copies that block straight into a fresh session, so any trailing citation, summary, or commentary is noise. Run the mandatory debate gate silently; do not append a "verified by..." line or any explanation below the block. If a 1.1 citation is required, it is one short line ABOVE the block at most; default to none.
