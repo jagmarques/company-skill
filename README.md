@@ -180,13 +180,15 @@ When no skill matches the task, workers fall back to raw tools.
 
 ## Design choices
 
-Three ideas shape the skill.
+Four ideas shape the skill.
 
 One file defines the team. COMPANY.md is the only thing you write. Delegation, task routing, and quality checks all happen on their own.
 
 No iteration limit. The loop runs until criteria.json says it is done, however many cycles that takes, and only once the Reviewer and the Devil's Advocate both accept.
 
 Self-improvement over configuration. Rather than tune prompts, the company learns from its own failures. The playbook grows across sessions, roles get tagged `[priority]` or `[inactive]` by performance, and the system improves by running rather than by tweaking.
+
+Reports stay short. Every employee, reviewer, and the CEO reports the conclusion first and the evidence that backs it, then stops. No narration, no restating the task, no walls of dense text - the minimum that carries the result. The one thing brevity never cuts is the source: a claim still ships with the command, file, or link that proves it.
 
 ## Project structure
 

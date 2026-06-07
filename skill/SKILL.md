@@ -61,6 +61,18 @@ Every criterion must be yes/no checkable. No vague language.
 
 Read `.company/playbook.md` if it exists (accumulated knowledge from past sessions).
 
+## Reporting discipline (applies to EVERY output, every role)
+
+Every report - worker to lead, lead to CEO, reviewer/critic verdict, and the orchestrator's own chat reply to the user - is SHORT and dense-free. State the conclusion first, in the minimum words that carry it. Report only what is relevant to the decision; cut everything else.
+
+- Lead with the verdict or result. No preamble, no restating the task, no narrating the process you followed, no summary-of-a-summary, no decorative headers or filler.
+- Keep: the verdict, the evidence line (FINDING + SOURCE, the command + its output, the PR/SHA/CI link), any blocker, and any number that changes a decision.
+- Cut: hedging, repetition, re-explaining the ask, multi-paragraph framing, prose that performs thoroughness instead of delivering it.
+- Concise is NOT unsourced. Brevity compresses the PROSE around a claim, never the EVIDENCE for it - a claim with its source dropped is not short, it is unverifiable (this defers to trust-nothing verification). Keep the SOURCE; cut the words around it.
+- Default shape: a few lines plus at most one structured block (the finding, the table of results, the verdict). Expand only when the user asks for breadth or when the evidence genuinely needs the space.
+
+This binds the whole skill: the worker/lead/reviewer/critic sub-agents are told the same in their prompts, and the orchestrator's user-facing replies obey it too.
+
 ## Loop
 
 Print as plain text (NOT Bash):
@@ -90,11 +102,11 @@ Each worker gets: their task, their previous findings file, failed approaches fr
 
 If a skill was assigned (see Skill Routing table), invoke it via the Skill tool FIRST before doing anything else.
 
-**EXTERNAL FACT RULE (highest priority):** Before writing ANY public-facing output (GitHub comments, PR descriptions, emails, blog posts) that states a specific fact about an external project (version numbers, API details, feature claims, architecture, block formats), the worker MUST verify it first using WebFetch or `gh api` to read the project's actual docs/source/README. If it cannot verify, it must say "not sure" instead of guessing. NEVER cite external numbers from memory. ONE STRIKE: if corrected, respond "my bad, you're right" and stop — never attempt a second correction with more guessed details.
+**EXTERNAL FACT RULE (highest priority):** Before writing ANY public-facing output (GitHub comments, PR descriptions, emails, blog posts) that states a specific fact about an external project (version numbers, API details, feature claims, architecture, block formats), the worker MUST verify it first using WebFetch or `gh api` to read the project's actual docs/source/README. If it cannot verify, it must say "not sure" instead of guessing. NEVER cite external numbers from memory. ONE STRIKE: if corrected, respond "my bad, you're right" and stop - never attempt a second correction with more guessed details.
 
-Every finding MUST have:
+Report the finding and its source, nothing else - no narration of the steps, no framing prose (see Reporting discipline). Every finding MUST have:
 ```
-FINDING: what
+FINDING: what (one line)
 SOURCE: file/URL/command that proves it
        OR "NOVEL - needs validation" for new ideas/techniques that don't exist yet
 ```
@@ -131,7 +143,7 @@ Write STATUS.md. Then update `.company/playbook.md`:
 ```markdown
 ## Session {date}
 WORKED: {what succeeded, linked to evidence}
-FAILED: {what failed} → USE INSTEAD: {what works} — WHY: {the difference}
+FAILED: {what failed} → USE INSTEAD: {what works} - WHY: {the difference}
 INEFFICIENT: {what worked but was slow} → FASTER: {better approach}
 HIRE: {roles added this session and why}
 FIRE: {roles that produced nothing, marked [inactive] in COMPANY.md}
