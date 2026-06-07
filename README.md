@@ -226,6 +226,8 @@ It refreshes the on-disk state (`criteria.json`, `STATUS.md`, `NEXT.md`, the pla
 
 The prompt is never hand-written. The procedure runs a Source-Verifier, Devil's-Advocate, and Completeness pass to re-derive every SHA, PR, CI, and prod claim live before it emits, and it outputs only the prompt block with no trailing commentary.
 
+Before it emits, the restart quiesces every background agent still running. Because `/clear` orphans a live sub-agent and loses its uncommitted work, the procedure first finishes or stops each one and preserves real work as a draft PR, then lists those PRs in the prompt so the fresh session resumes them. A restart that orphans live work is treated as a failed restart.
+
 When it fires on its own, and the honest limits:
 
 * At compaction, the reliable trigger. Claude Code has no hook that fires at a context percentage. The closest hard wiring is compaction. The `PreCompact` hook (`hooks/precompact.js`) snapshots state to `.company/.checkpoint.md`, and the post-compaction `SessionStart` hook (`hooks/session-restore.js`, matcher `compact`) injects an instruction telling the model to run `/company restart` and emit the handoff. This is wired and survives compaction. `PreCompact` is shell-only, so it cannot emit the prompt itself. The model does that right after, nudged by the restore hook.
