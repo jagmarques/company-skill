@@ -197,7 +197,7 @@ Cancel: `touch .company/CANCEL`
 
 Invoked as `/company restart`. Purpose: when the live session's context is filling up, emit ONE self-contained continuation prompt the founder can paste into a fresh session (after `/clear`) so `/company` resumes with zero lost state and no manual back-and-forth.
 
-Auto-trigger: when a context-usage warning of **>= 50%** appears (the harness emits these as system reminders), proactively run this restart procedure WITHOUT being asked, as soon as the current atomic step is safe to pause. Below 50%, only run it when the founder types `/company restart`. Run it at most once per ~10% of additional context climbed.
+Auto-trigger: when a context-usage warning of **>= 50%** appears (the harness emits these as system reminders), proactively run this restart procedure WITHOUT being asked, as soon as the current atomic step is safe to pause AND every in-flight sub-agent has been quiesced (finished, or stopped with its work committed + pushed as a draft PR - see Quiesce below). Below 50%, only run it when the founder types `/company restart`. Run it at most once per ~10% of additional context climbed.
 
 The restart prompt MUST be a single fenced block the founder can copy verbatim, and MUST contain:
 1. **GOAL + mode** for the resumed session (founder-mode, autonomous, loop-until-done).
@@ -209,7 +209,17 @@ The restart prompt MUST be a single fenced block the founder can copy verbatim, 
 7. **ENVIRONMENT:** repo paths, worktree-per-stream, prod access, local-check limits (darwin can't import; ruff+ast+radon+tenant-guard only).
 8. **Brutally honest STATUS** of what is NOT done and why.
 
-Procedure: (a) refresh `~/.company/{criteria.json,STATUS.md,NEXT.md}` + playbook + memory FIRST (so the prompt points at fresh artifacts); (b) re-derive the live state cheaply (don't trust prior STATUS); (c) emit the single continuation block. Keep it complete over terse - it replaces the founder having to hand-assemble it.
+Procedure: (a) QUIESCE first (see below) - never emit the prompt while a sub-agent is mid-flight; (b) refresh `~/.company/{criteria.json,STATUS.md,NEXT.md}` + playbook + memory (so the prompt points at fresh artifacts); (c) re-derive the live state cheaply (don't trust prior STATUS); (d) emit the single continuation block. Keep it complete over terse - it replaces the founder having to hand-assemble it.
+
+### Quiesce in-flight agents BEFORE emitting (restart safety)
+
+The founder restarts by running `/clear` and pasting the prompt into a fresh session, which ORPHANS any background sub-agent still running here - its uncommitted work is lost and the fresh session cannot see it. So the restart MUST leave a quiet, fully-captured tree before it emits:
+
+1. List every running background sub-agent / task. If none are running, skip to refresh.
+2. For each, either WAIT for it to finish, or STOP it and PRESERVE its work: inspect its worktree (`git status`), and if it built something real, commit it on its branch + push and open a DRAFT PR so the work survives the `/clear` and is re-derivable via `gh pr list` (mark the PR WIP / not-merge-ready, with what gates still must run). Discard only a worktree with nothing of value.
+3. Confirm zero agents are still running before continuing. The auto-trigger at >= 50% waits for the current atomic step to be safe to pause for the SAME reason - it never interrupts a sub-agent mid-build.
+
+The continuation prompt then lists each preserved DRAFT PR by number so the fresh session reviews and gates it rather than rebuilding it. A restart that orphans live work is a failed restart.
 
 ### Mandatory debate gate (the restart prompt is NEVER emitted solo)
 
