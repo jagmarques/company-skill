@@ -198,3 +198,13 @@ The restart prompt MUST be a single fenced block the founder can copy verbatim, 
 8. **Brutally honest STATUS** of what is NOT done and why.
 
 Procedure: (a) refresh `~/.company/{criteria.json,STATUS.md,NEXT.md}` + playbook + memory FIRST (so the prompt points at fresh artifacts); (b) re-derive the live state cheaply (don't trust prior STATUS); (c) emit the single continuation block. Keep it complete over terse - it replaces the founder having to hand-assemble it.
+
+### Mandatory debate gate (the restart prompt is NEVER emitted solo)
+
+`/company restart` (and the 50% auto-trigger) MUST NOT hand-write the continuation prompt from the orchestrator's memory. It is a high-stakes artifact (a wrong SHA / PR-state / dropped task makes the resumed session act on false state), so it goes through the full-company debate BEFORE it is shown, every time:
+
+1. **Source Verifier** (1 sub-agent): cold-re-derive EVERY factual claim the prompt will contain against LIVE state - `git rev-parse origin/main`, `gh pr view/checks` for each open PR (real HEAD SHA + draft + per-leg CI state), each worktree's `git status`/log, prod `build_sha` via SSH, merged-PR states, file existence. Returns CONFIRMED/WRONG per claim. NEVER state a SHA, PR number, CI verdict, or prod value the Source Verifier did not just confirm.
+2. **Devil's Advocate** (1 sub-agent): attack the draft prompt - what is stale, ambiguous, or would make a fresh session resume WRONG? Default to "not trustworthy" on any unverified line.
+3. **Completeness Critic** (1 sub-agent or the Reviewer): check NOTHING pending is dropped - every open PR, every uncommitted/incomplete worker, every founder-gated wait, every gate, every carryover in NEXT.md is represented.
+
+Only after their corrections are folded in is the prompt emitted, as a single fenced block, with a one-line citation of the debate (1.1). If the founder asks "are you sure / did you debate it" the answer must already be yes because this gate ran. If sub-agents are unavailable (rate limit), say so explicitly and mark each unverified claim "UNVERIFIED" rather than asserting it. Keep concurrent sub-agents <= 3 and retry transient failures - do not skip the gate because of an error.
