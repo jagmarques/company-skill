@@ -10,12 +10,13 @@ allowed-tools:
   - Grep
   - Glob
   - Agent
+  - Task
   - WebSearch
   - WebFetch
   - Skill
 ---
 
-Run the /company skill with the provided goal. Read ~/.claude/skills/company/SKILL.md for the full orchestration instructions and follow them exactly.
+Run the /company skill with the provided goal. Read ~/.claude/skills/company/SKILL.md for the full orchestration instructions and follow them exactly. The allowed-tools list names the subagent-spawning tool twice because it is called Agent in current Claude Code and Task in older versions; use whichever your harness provides.
 
 The goal is: $ARGUMENTS
 
