@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const companyDir = path.join(process.cwd(), '.company');
+const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
 if (!fs.existsSync(companyDir)) process.exit(0);
 
 const lines = ['# Company Checkpoint (auto-saved before compaction)', ''];
@@ -67,11 +67,13 @@ if (fs.existsSync(rosterPath)) {
   lines.push('');
 }
 
-// Playbook (accumulated lessons)
+// Playbook (accumulated lessons). New session entries are appended at the
+// bottom, so snapshot the TAIL, not the head.
 const playbookPath = path.join(companyDir, 'playbook.md');
 if (fs.existsSync(playbookPath)) {
-  lines.push('## Playbook (lessons)');
-  lines.push(fs.readFileSync(playbookPath, 'utf8').substring(0, 500));
+  const playbook = fs.readFileSync(playbookPath, 'utf8');
+  lines.push('## Playbook (latest lessons)');
+  lines.push(playbook.substring(Math.max(0, playbook.length - 500)));
   lines.push('');
 }
 

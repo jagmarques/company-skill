@@ -1,64 +1,80 @@
 #!/usr/bin/env node
 
+// Stop gate for /company runs. Blocks the session from stopping while any
+// criterion in criteria.json is failing or missing evidence.
+//
+// The ONLY escape hatch is the cancel file: touch .company/CANCEL
+// There is deliberately no timing-based escape. A repeated stop attempt is
+// blocked again with the same reason until the criteria genuinely pass or
+// the run is cancelled.
+//
+// Safety valve for unrelated sessions: a criteria.json that has not been
+// touched for 24 hours is treated as a stale leftover and does not block.
+
 const fs = require('fs');
 const path = require('path');
 
-const cwd = process.cwd();
-const companyDir = path.join(cwd, '.company');
+const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
 const criteriaPath = path.join(companyDir, 'criteria.json');
 const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
-const lockPath = path.join(companyDir, '.stop-lock');
+
+const STALE_MS = 24 * 60 * 60 * 1000;
+
+function block(reason) {
+  console.log(JSON.stringify({ decision: 'block', reason: '[COMPANY] ' + reason }));
+  process.exit(0);
+}
+
+function isStale(p) {
+  try {
+    return Date.now() - fs.statSync(p).mtimeMs > STALE_MS;
+  } catch (e) {
+    return true;
+  }
+}
 
 // No company running
 if (!fs.existsSync(goalPath) && !fs.existsSync(criteriaPath)) process.exit(0);
 
-// Cancel signal
+// Cancel signal: the only escape hatch
 if (fs.existsSync(cancelPath)) {
   try { fs.unlinkSync(cancelPath); } catch (e) {}
-  try { fs.unlinkSync(lockPath); } catch (e) {}
   process.exit(0);
 }
 
-// If lock file exists and is recent (< 60s), this is a repeat stop. Allow it.
-if (fs.existsSync(lockPath)) {
-  try {
-    const age = Date.now() - fs.statSync(lockPath).mtimeMs;
-    if (age < 60000) {
-      fs.unlinkSync(lockPath);
-      process.exit(0);
-    }
-  } catch (e) {}
-}
-
-// Check criteria
 if (fs.existsSync(criteriaPath)) {
+  if (isStale(criteriaPath)) process.exit(0);
+
+  let data;
   try {
-    const data = JSON.parse(fs.readFileSync(criteriaPath, 'utf8'));
-    const all = data.criteria || [];
-    const failing = all.filter(c => !c.passes || !c.evidence);
-
-    if (all.length > 0 && failing.length === 0) {
-      try { fs.unlinkSync(lockPath); } catch (e) {}
-      process.exit(0);
-    }
-
-    // Write lock, block this stop
-    fs.writeFileSync(lockPath, String(Date.now()));
-    const failList = failing.map(c => c.description).join(', ');
-    console.log(JSON.stringify({
-      decision: "block",
-      reason: "[COMPANY] " + failing.length + "/" + all.length + " criteria not met: " + failList + ". Continue THINK > EXECUTE > VERIFY."
-    }));
-    process.exit(0);
+    data = JSON.parse(fs.readFileSync(criteriaPath, 'utf8'));
   } catch (e) {
-    process.exit(0);
+    // Fail closed: broken JSON is not a free pass out of the gate.
+    block('criteria.json is unparseable. Repair the JSON so the criteria can be ' +
+      'checked honestly. To cancel the run instead: touch .company/CANCEL');
   }
+
+  const all = (data && data.criteria) || [];
+
+  if (all.length === 0) {
+    block('criteria.json has zero criteria. Write real yes/no checkable criteria ' +
+      'for the goal. To cancel the run instead: touch .company/CANCEL');
+  }
+
+  // passes:true requires non-null evidence. The VERIFY phase writes the
+  // reproduced evidence string when it flips a criterion to passing.
+  const failing = all.filter(c => !c.passes || !c.evidence);
+
+  if (failing.length === 0) process.exit(0);
+
+  const failList = failing.map(c => c.description).join(', ');
+  block(failing.length + '/' + all.length + ' criteria not met: ' + failList +
+    '. Continue THINK > EXECUTE > VERIFY. passes:true counts only with non-null ' +
+    'evidence reproduced by the reviewer. To cancel the run: touch .company/CANCEL');
 }
 
-// No criteria but goal exists — block once
-fs.writeFileSync(lockPath, String(Date.now()));
-console.log(JSON.stringify({
-  decision: "block",
-  reason: "[COMPANY] Goal not achieved. Create criteria.json and start THINK > EXECUTE > VERIFY."
-}));
+// Goal exists but criteria.json was never written
+if (isStale(goalPath)) process.exit(0);
+block('Goal not achieved. Create .company/criteria.json and start ' +
+  'THINK > EXECUTE > VERIFY. To cancel the run: touch .company/CANCEL');
