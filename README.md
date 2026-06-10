@@ -22,7 +22,7 @@ With /company the orchestrator reads the goal and picks the relevant employees. 
 
 ## Quick start
 
-**1. Install** (either installer delivers the skill, commands, agents, and hooks)
+**1. Install.** The npx path copies the skill, commands, agents, and hooks and registers the hooks in settings.json automatically. The curl path copies the same files and registers the hooks when node is available, otherwise it prints the exact manual registration steps (the hooks need node at runtime anyway).
 ```bash
 npx company-skill install
 ```
@@ -133,7 +133,7 @@ The skill writes a `criteria.json` with machine-checkable success criteria:
 
 Everything starts failing. Only the VERIFY phase flips a criterion, and only by writing the reproduced evidence into the `evidence` field at the same time.
 
-A Stop Hook reads this file and blocks Claude from exiting until every criterion has `passes: true` and non-null evidence. There is no timing escape and a malformed criteria.json blocks rather than failing open. The only override is `touch .company/CANCEL`. A criteria file untouched for 24 hours goes stale and stops blocking, so a leftover run cannot trap unrelated sessions.
+A Stop Hook reads this file and blocks Claude from exiting until every criterion has `passes: true` and non-null evidence. There is no timing escape, and a malformed criteria.json (unparseable or wrong shape) blocks rather than failing open. The only override is `touch .company/CANCEL`. A criteria file untouched for 24 hours still blocks, but the block reason names its age and points at the cancel file, so a leftover run is surfaced for cancellation instead of silently passing.
 
 ## Self-improving playbook
 
@@ -240,7 +240,7 @@ bin/install.js       npx installer (same coverage)
 
 ## Development
 
-`bash scripts/check.sh` parses every hook and installer, validates frontmatter, and greps for content that must never ship (private rule references, hardcoded IPs, em dashes). CI runs the same script on every pull request.
+`bash scripts/check.sh` parses every hook and installer, validates frontmatter, and greps for content that must never ship (private rule references, hardcoded IPs, em dashes, leaked operator brand names). CI runs the same script on every pull request.
 
 ## Examples
 

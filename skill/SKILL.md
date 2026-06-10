@@ -11,6 +11,7 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
+  - Agent
   - Task
   - WebSearch
   - WebFetch
@@ -21,7 +22,7 @@ allowed-tools:
 
 Give it a goal. Activate only the employees relevant to that goal. Loop until verified done.
 
-You, the session running this skill, are the ORCHESTRATOR (the CEO). You are the only context that ever spawns sub-agents. Sub-agents cannot spawn sub-agents, so leads plan and workers execute, but every Task call is yours.
+You, the session running this skill, are the ORCHESTRATOR (the CEO). You are the only context that ever spawns sub-agents. Sub-agents cannot spawn sub-agents, so leads plan and workers execute, but every call to the subagent-spawning tool (named Agent in current Claude Code, Task in older versions) is yours. The rest of this file calls it Agent.
 
 ## State directory
 
@@ -38,6 +39,8 @@ echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install > /d
 echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills > /dev/null 2>&1 && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || echo "WARN: trailofbits install failed"
 echo "Skill install pass done"
 ```
+
+The `@latest` tags are deliberate: these skill packs update frequently, the install is best-effort (failures are tolerated and noted), and a pinned version would go stale with no one watching it.
 
 If an install fails, continue anyway. Any task whose assigned skill turns out to be missing falls back to raw tools and notes `SKILL-MISSING` in its findings. Never loop retrying a Skill call that does not exist.
 
@@ -57,7 +60,7 @@ Then check if COMPANY.md exists and report how many roles found. Check if playbo
 
 ## Parse
 
-**If the user's argument starts with "restart"**, this is NOT a goal. Skip everything below, do NOT write criteria.json, and execute "Restart mode" at the end of this file.
+**If the user's entire argument, after trimming whitespace, is exactly "restart"**, this is NOT a goal. Skip everything below, do NOT write criteria.json, and execute "Restart mode" at the end of this file. A goal that merely begins with the word ("restart the API server") is a normal goal, not restart mode.
 
 Otherwise:
 
@@ -120,7 +123,7 @@ Write `.company/cycles/cycle-{N}-briefing.md` first (exact name, the PreCompact 
 
 As CEO, read the GOAL and COMPANY.md. Decide which departments and employees are RELEVANT to this specific goal. Only activate relevant ones. A mobile app goal does not need a Topologist. Write `.company/active-roster.md`: each activated employee with a one-line reason.
 
-Spawn ALL relevant department leads in parallel: one `company-lead` Task per department, every Task call in a SINGLE message. Sequential lead spawns are a bug. If a Task call fails transiently, retry once, then record the lead as unavailable and fold its planning into your own.
+Spawn ALL relevant department leads in parallel: one `company-lead` Agent call per department, every Agent call in a SINGLE message. Sequential lead spawns are a bug. If an Agent call fails transiently, retry once, then record the lead as unavailable and fold its planning into your own.
 
 Leads ANALYZE and return a task list. They do not execute and they do not spawn. Each lead prompt must be self-contained and re-runnable: the goal, the criteria, the active roster slice for that department, the previous cycle feedback, the installed skills list, and the relevant playbook lines, all PASTED IN, never referenced. Each lead returns one delegation contract per task (see the template above) and writes them to `.company/cycles/cycle-{N}-tasks-{dept}.md`.
 
@@ -132,7 +135,7 @@ Collect every lead's contracts. Dedup by SURFACE, not by task string: list the f
 
 ### EXECUTE (orchestrator spawns all workers in parallel)
 
-Spawn one `company-worker` Task per contract, ALL in a single message. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
+Spawn one `company-worker` Agent call per contract, ALL in a single message. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
 
 If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. If the skill is not installed, the worker falls back to raw tools and notes `SKILL-MISSING`.
 
@@ -228,11 +231,11 @@ If no skill matches, or an assigned skill is not installed (`SKILL-MISSING`), wo
 
 ## Model assignment
 
-Each agent file carries a `model` field in its frontmatter: leads, reviewer, and critic on a strong model, workers on a mid-tier model, the digest on the cheapest. If your harness honors per-agent model selection, that is the entire mechanism. If it does not, agents inherit the session's model and that is fine. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Task call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
+Each agent file carries a `model` field in its frontmatter: leads, reviewer, and critic on a strong model, workers on a mid-tier model, the digest on the cheapest. If your harness honors per-agent model selection, that is the entire mechanism. If it does not, agents inherit the session's model and that is fine. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Agent call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
 
 ## Stop Hook
 
-The stop guard blocks the session from stopping until ALL criteria.json entries have `passes: true` AND non-null `evidence`. There is no timing escape. Unparseable criteria.json also blocks. The only override: `touch .company/CANCEL`. Criteria files untouched for 24 hours go stale and stop blocking, so a leftover run cannot trap unrelated sessions.
+The stop guard blocks the session from stopping until ALL criteria.json entries have `passes: true` AND non-null `evidence`. There is no timing escape. Unparseable or wrong-shape criteria.json also blocks (fail closed). The only override: `touch .company/CANCEL`. A criteria file untouched for 24 hours still blocks, but the block reason states its age and points at the cancel file, so a leftover run is surfaced and cancellable rather than silently waved through.
 
 ## Files
 
@@ -273,7 +276,7 @@ Procedure: (a) QUIESCE first (see below), never emit the prompt while a sub-agen
 
 The user restarts by running `/clear` and pasting the prompt into a fresh session, which ORPHANS any background sub-agent still running here. Its uncommitted work is lost and the fresh session cannot see it. So the restart MUST leave a quiet, fully-captured tree before it emits:
 
-1. List every running background sub-agent and task: your own current cycle's Task list plus `.company/active-tasks.md`. Treat any task without a committed artifact as in-flight. If none are running, skip to refresh.
+1. List every running background sub-agent and task: your own current cycle's Agent calls plus `.company/active-tasks.md`. Treat any task without a committed artifact as in-flight. If none are running, skip to refresh.
 2. For each, either WAIT for it to finish, or STOP it and PRESERVE its work: inspect its worktree (`git status`), and if it built something real, commit on its branch + push and open a DRAFT PR so the work survives the `/clear` and is re-derivable via `gh pr list` (mark the PR WIP, with what gates still must run). Discard only a worktree with nothing of value.
 3. Confirm zero agents are still running before continuing. The auto-trigger waits for the current atomic step for the SAME reason, it never interrupts a sub-agent mid-build.
 
