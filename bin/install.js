@@ -55,22 +55,25 @@ try {
   // Stop hook
   if (!settings.hooks.Stop) settings.hooks.Stop = [];
   if (!settings.hooks.Stop.some(h => h.hooks?.some(hh => hh.command?.includes('company-stop-guard')))) {
-    settings.hooks.Stop.push({ hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-stop-guard.js')}"`, timeout: 5 }] });
+    settings.hooks.Stop.push({ hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-stop-guard.js')}"`, timeout: 10 }] });
   }
 
   // PreCompact hook
   if (!settings.hooks.PreCompact) settings.hooks.PreCompact = [];
   if (!settings.hooks.PreCompact.some(h => h.hooks?.some(hh => hh.command?.includes('company-precompact')))) {
-    settings.hooks.PreCompact.push({ hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-precompact.js')}"`, timeout: 5 }] });
+    settings.hooks.PreCompact.push({ hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-precompact.js')}"`, timeout: 10 }] });
   }
 
   // SessionStart hook (compact restore)
   if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
   if (!settings.hooks.SessionStart.some(h => h.hooks?.some(hh => hh.command?.includes('company-session-restore')))) {
-    settings.hooks.SessionStart.push({ matcher: 'compact', hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-session-restore.js')}"`, timeout: 5 }] });
+    settings.hooks.SessionStart.push({ matcher: 'compact', hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-session-restore.js')}"`, timeout: 10 }] });
   }
 
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  // Atomic write: a crash mid-write must not corrupt the user's settings.
+  const tmpPath = settingsPath + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
+  fs.renameSync(tmpPath, settingsPath);
   console.log('Hooks installed: Stop guard + PreCompact + SessionStart restore');
 } catch (e) {
   console.log('Could not register hooks. Add manually to settings.json.');
