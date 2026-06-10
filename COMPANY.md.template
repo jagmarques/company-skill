@@ -10,8 +10,11 @@
 
   TIPS:
   - First role in each department (or marked "Lead:") becomes the department lead
-  - Add [opus], [sonnet], or [haiku] to override model per role
-  - Default: leads use Opus (deep thinking), workers use Sonnet (execution)
+  - Add [opus], [sonnet], or [haiku] to request a model for a role. The
+    orchestrator states the override when spawning if the harness supports
+    per-agent models, otherwise the tag is ignored
+  - Defaults come from the agent files: leads and reviewers on a strong
+    model, workers on a mid tier, the digest on the cheapest
   - Add as many departments and roles as you want
 -->
 

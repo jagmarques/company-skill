@@ -9,7 +9,7 @@ allowed-tools:
   - Bash
   - Grep
   - Glob
-  - Agent
+  - Task
   - WebSearch
   - WebFetch
   - Skill
