@@ -1,0 +1,90 @@
+#!/bin/bash
+# Quality floor for this repo. Run from anywhere: bash scripts/check.sh
+# Checks that every shipped JS file parses, the skill and agent files have
+# frontmatter, and no private or banned content leaks into the public files.
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+fail=0
+
+note_fail() {
+  echo "FAIL: $1"
+  fail=1
+}
+
+# 1. Every hook and the installer must parse as valid JS
+for f in hooks/*.js bin/install.js; do
+  if node --check "$f" 2>/dev/null; then
+    echo "ok: node --check $f"
+  else
+    node --check "$f" || true
+    note_fail "$f does not parse"
+  fi
+done
+
+# 2. install.sh must parse as valid shell
+if bash -n install.sh 2>/dev/null; then
+  echo "ok: bash -n install.sh"
+else
+  note_fail "install.sh does not parse"
+fi
+
+# 3. SKILL.md frontmatter exists and names the skill
+if [ "$(head -1 skill/SKILL.md)" = "---" ] && grep -q '^name: company$' skill/SKILL.md; then
+  echo "ok: SKILL.md frontmatter"
+else
+  note_fail "skill/SKILL.md frontmatter missing or name field absent"
+fi
+
+# 4. Every agent file has frontmatter with name and model fields
+for f in agents/*.md; do
+  if [ "$(head -1 "$f")" = "---" ] && grep -q '^name: ' "$f" && grep -q '^model: ' "$f"; then
+    echo "ok: frontmatter $f"
+  else
+    note_fail "$f missing frontmatter, name, or model field"
+  fi
+done
+
+# 5. package.json parses
+if node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))" 2>/dev/null; then
+  echo "ok: package.json parses"
+else
+  note_fail "package.json is invalid JSON"
+fi
+
+# 6. No private rule-number references (e.g. references to a numbered rule
+#    in someone's personal CLAUDE.md) in shipped files
+if grep -rnE 'CLAUDE\.md +(rule +)?[0-9]+\.[0-9]+|\(CLAUDE\.md +[0-9]' \
+    --include='*.md' --include='*.js' --include='*.sh' \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude=check.sh .; then
+  note_fail "private rule-number reference found"
+else
+  echo "ok: no private rule references"
+fi
+
+# 7. No hardcoded IP addresses (loopback and wildcard excepted)
+if grep -rnE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' \
+    --include='*.md' --include='*.js' --include='*.sh' \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude=check.sh . \
+    | grep -vE '127\.0\.0\.1|0\.0\.0\.0'; then
+  note_fail "hardcoded IP address found"
+else
+  echo "ok: no hardcoded IPs"
+fi
+
+# 8. No em dashes in shipped files
+EMDASH=$(printf '\342\200\224')
+if grep -rn "$EMDASH" \
+    --include='*.md' --include='*.js' --include='*.sh' \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude=check.sh .; then
+  note_fail "em dash found"
+else
+  echo "ok: no em dashes"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "CHECKS FAILED"
+  exit 1
+fi
+echo "ALL CHECKS PASSED"
