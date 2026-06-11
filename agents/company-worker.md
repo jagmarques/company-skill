@@ -32,3 +32,5 @@ SOURCE: file/URL/command that proves it
 Rate each finding's importance 1-5 (the digest keeps 4-5 in full).
 
 Report SHORT. Result first, then the evidence (FINDING + SOURCE: the command and its output, the file, the PR/SHA/CI link). No narration of your steps, no restating the task. Concise never means unsourced: cut the prose around a claim, never the source that proves it.
+
+End every findings append with one machine-greppable line: `STATUS: complete` when DONE-WHEN is met and verified, `STATUS: blocked` with the blocker named above it, or `STATUS: incomplete` with what remains. The orchestrator greps this line instead of parsing your prose.

@@ -19,3 +19,5 @@ Your prompt names the finished cycle's findings files, its review file (`.compan
 Never drop a SOURCE line when compressing. A compressed claim without its source is unverifiable and worse than dropping the claim. Never editorialize and never add new claims.
 
 Your prompt is self-contained and may be re-run. Re-running you must produce the same briefing, so write the whole file, never append.
+
+When any finding carries SKILL-MISSING or a failed skill invocation, record the skill name and failure mode in the briefing so the next THINK routes around it instead of rediscovering it.

@@ -117,7 +117,7 @@ Print as plain text (NOT Bash):
 CYCLE {N} - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
-At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything.
+Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything.
 
 ### THINK (leads analyze, they never spawn)
 
@@ -141,13 +141,13 @@ Spawn one `company-worker` Agent call per contract. Contracts with `DEPENDS-ON: 
 
 If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. If the skill is not installed, the worker falls back to raw tools and notes `SKILL-MISSING`.
 
-**Git discipline:** every worker that touches a repo works in its own worktree on its own branch (`git worktree add ../wt-{task-id} -b company/{task-id}`), commits there, pushes the branch, and opens a DRAFT PR. Workers NEVER commit to a shared checkout, NEVER push to main, NEVER merge. Merging is the orchestrator's job and only after VERIFY (see MERGE GATE).
+**Git discipline:** every worker that touches a repo works in its own worktree on its own branch (prefer the harness's per-agent worktree isolation when it offers one, otherwise `git worktree add ../wt-{task-id} -b company/{task-id}`), commits there, pushes the branch, and opens a DRAFT PR. Workers NEVER commit to a shared checkout, NEVER push to main, NEVER merge. Merging is the orchestrator's job and only after VERIFY (see MERGE GATE).
 
 **EXTERNAL FACT RULE (highest priority):** before writing ANY public-facing output (GitHub comments, PR descriptions, emails, blog posts) that states a specific fact about an external project (version numbers, API details, feature claims, architecture), the worker MUST verify it first using WebFetch or `gh api` against the project's actual docs, source, or README. If it cannot verify, it says "not sure" instead of guessing. NEVER cite external numbers from memory. ONE STRIKE: if corrected, post a one-line factual correction and stop. Never argue and never guess a second time.
 
 **Scope:** do ONLY the assigned task. Adjacent problems get one line in findings (`ALSO-FOUND: ...`) for the next THINK, never fixed unbidden.
 
-**Long waits** (CI, builds, deploys): launch the wait in background (`run_in_background`, for example `gh pr checks --watch` or an until-loop with sleep) and continue other work. Never foreground-sleep and never assume success without reading the watcher's output. A watcher script must FAIL LOUD on tool errors: distinguish "the status command itself failed" (auth outage, network) from "zero items pending", or an outage reads as success. The orchestrator applies the same primitive to its own layer: a long-running independent Agent call can run with `run_in_background` so other workers and merges proceed, with the result read when the notification arrives.
+**Long waits** (CI, builds, deploys): launch the wait in background (`run_in_background`, for example `gh pr checks --watch` or an until-loop with sleep) and continue other work. Never foreground-sleep and never assume success without reading the watcher's output. When the harness offers scheduled wakeups, prefer one long wakeup over polling sleeps. A watcher script must FAIL LOUD on tool errors: distinguish "the status command itself failed" (auth outage, network) from "zero items pending", or an outage reads as success. The orchestrator applies the same primitive to its own layer: a long-running independent Agent call can run with `run_in_background` so other workers and merges proceed, with the result read when the notification arrives.
 
 **Deferred tools:** the harness may defer tool schemas (MCP servers, platform tools) behind ToolSearch. A worker whose contract needs a tool it cannot call directly first loads it via ToolSearch (`select:<name>` or keyword search); only after ToolSearch returns nothing does it report `SKILL-MISSING` or `BLOCKED`.
 
@@ -160,9 +160,9 @@ SOURCE: file/URL/command that proves it
 Existing claims (numbers, papers, competitor data) need real sources.
 Novel ideas use "NOVEL - needs validation" and MUST be tested in the same or next cycle. The reviewer accepts novel sources but adds a criterion to criteria.json: "Validate novel technique X with experiment."
 
-If a task is blocked or impossible, the worker reports `BLOCKED: reason + what would unblock it` as the finding. Never silently return nothing, never expand scope to compensate.
+Every findings append ends with a machine-greppable `STATUS: complete`, `STATUS: blocked`, or `STATUS: incomplete` line, and the orchestrator greps that line rather than parsing prose. If a task is blocked or impossible, the worker reports `BLOCKED: reason + what would unblock it` as the finding. Never silently return nothing, never expand scope to compensate.
 
-**Retry by respawn:** a worker that fails, stalls, or returns confused output is never coached in place and never continued. Spawn a FRESH worker with the same contract plus one line of failure evidence ("previous attempt failed because X"). Per-task commits make this safe to repeat. A corrupted context is abandoned, not repaired.
+**Continuity versus respawn:** for a follow-up question to a HEALTHY finished agent (a re-gate at a new head, a clarification), continue that agent by its id when the harness supports it, an uncorrupted context is an asset. **Retry by respawn:** a worker that fails, stalls, or returns confused output is never coached in place and never continued. Spawn a FRESH worker with the same contract plus one line of failure evidence ("previous attempt failed because X"). Per-task commits make this safe to repeat. A corrupted context is abandoned, not repaired.
 
 ### VERIFY
 
