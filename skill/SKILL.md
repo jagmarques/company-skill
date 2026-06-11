@@ -87,6 +87,7 @@ Every report - worker to orchestrator, lead to orchestrator, reviewer or critic 
 - Keep: the verdict, the evidence line (FINDING + SOURCE, the command + its output, the PR/SHA/CI link), any blocker, and any number that changes a decision.
 - Cut: hedging, repetition, re-explaining the ask, multi-paragraph framing, prose that performs thoroughness instead of delivering it.
 - Concise is NOT unsourced. Brevity compresses the PROSE around a claim, never the EVIDENCE for it. A claim with its source dropped is not short, it is unverifiable. Keep the SOURCE, cut the words around it.
+- Sound like a person: plain words, no AI tells, no inflated vocabulary. Short and professional beats exhaustive and robotic.
 - Default shape: a few lines plus at most one structured block. Expand only when the user asks for breadth or the evidence genuinely needs the space.
 
 This binds the whole skill. The agent files repeat it because sub-agents never see this text.
@@ -143,6 +144,8 @@ If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. I
 
 **Git discipline:** every worker that touches a repo works in its own worktree on its own branch (prefer the harness's per-agent worktree isolation when it offers one, otherwise `git worktree add ../wt-{task-id} -b company/{task-id}`), commits there, pushes the branch, and opens a DRAFT PR. Workers NEVER commit to a shared checkout, NEVER push to main, NEVER merge. Merging is the orchestrator's job and only after VERIFY (see MERGE GATE).
 
+**HUMAN VOICE RULE:** every piece of text a human will read outside the run (PR titles and bodies, GitHub comments, emails, posts, README copy, STATUS.md prose) gets a /humanizer pass before it ships: short, professional, human-sounding, no AI tells. Evidence lines (FINDING, SOURCE, commands, verdicts) are data and stay verbatim, never humanized. If the humanizer skill is missing, the worker self-edits against the same bar and notes SKILL-MISSING.
+
 **EXTERNAL FACT RULE (highest priority):** before writing ANY public-facing output (GitHub comments, PR descriptions, emails, blog posts) that states a specific fact about an external project (version numbers, API details, feature claims, architecture), the worker MUST verify it first using WebFetch or `gh api` against the project's actual docs, source, or README. If it cannot verify, it says "not sure" instead of guessing. NEVER cite external numbers from memory. ONE STRIKE: if corrected, post a one-line factual correction and stop. Never argue and never guess a second time.
 
 **Scope:** do ONLY the assigned task. Adjacent problems get one line in findings (`ALSO-FOUND: ...`) for the next THINK, never fixed unbidden.
@@ -194,7 +197,7 @@ Do not try to run `/compact` yourself. It is a user command, not a tool. Context
 
 ## After Done
 
-Write STATUS.md. Then update `.company/playbook.md`:
+Write STATUS.md, giving its prose a /humanizer pass (the tables and evidence lines stay verbatim). Then update `.company/playbook.md`:
 
 ```markdown
 ## Session {date}
@@ -230,6 +233,7 @@ Leads assign a skill in the contract when the task matches. Workers invoke it vi
 | Debug with state | /gsd-debug | Complex bug needing persistent debug session |
 | Plan work | /gsd-plan-phase | Break complex task into steps |
 | Browse/test site | /browse | Navigate URLs, check page state, screenshots |
+| Public-facing text | /humanizer | Any PR body, comment, email, post, or README copy, run it BEFORE publishing |
 
 If no skill matches, or an assigned skill is not installed (`SKILL-MISSING`), workers use raw tools (Read, Write, Bash, etc.).
 
