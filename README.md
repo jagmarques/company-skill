@@ -37,7 +37,7 @@ graph LR
     B -.-> T
 ```
 
-It runs any model the way frontier models like Claude Fable 5 run themselves: delegation contracts, verify layers, and failing-by-default criteria ship as structural artifacts, so the discipline holds whichever model fills each role. The orchestrator reads the goal and activates only the relevant employees. Leads decompose the goal into delegation contracts, workers execute them in parallel waves, and two reviewers gate every cycle: the Internal Reviewer re-runs the evidence and the Devil's Advocate attacks it. There is no iteration limit. The harness carries the quality, so none of it depends on the model remembering to be careful.
+It runs any model with the operating rigor the frontier pair Claude Fable 5 and Mythos 5 demonstrate: delegation contracts, two-pass evidence verification, and failing-by-default criteria ship as structural artifacts, so the discipline holds whichever model fills each role. The orchestrator reads the goal and activates only the relevant employees. Leads decompose the goal into delegation contracts, workers execute them in parallel waves, and two reviewers gate every cycle: the Internal Reviewer re-runs the evidence and the Devil's Advocate attacks it. There is no iteration limit. The harness carries the quality, so none of it depends on the model remembering to be careful.
 
 ## Delegation contracts
 

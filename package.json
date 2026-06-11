@@ -5,7 +5,7 @@
   "bin": {
     "company-skill": "./bin/install.js"
   },
-  "keywords": ["claude-code", "skill", "multi-agent", "company", "orchestration", "model-agnostic", "autonomous-agents", "stop-hook", "agent-orchestration", "ai-agents", "fable", "claude-fable"],
+  "keywords": ["claude-code", "skill", "multi-agent", "company", "orchestration", "model-agnostic", "autonomous-agents", "stop-hook", "agent-orchestration", "ai-agents", "fable", "claude-fable", "mythos", "claude-mythos"],
   "author": "jagmarques",
   "license": "MIT",
   "repository": {
