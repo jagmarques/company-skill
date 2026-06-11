@@ -1,27 +1,11 @@
 #!/usr/bin/env node
 
-// Stop gate for /company runs. Blocks the session from stopping while any
-// criterion in criteria.json is failing or missing evidence.
-//
-// The ONLY escape hatch is the cancel file, and it belongs to the HUMAN
-// operator: the block reasons deliberately do not name it, so a blocked
-// model is never handed its own override. There is no timing-based escape.
-// A repeated stop attempt is blocked again until the criteria genuinely
-// pass or the human cancels. The criterion id set is locked on first sight
-// (criteria.lock): deleting a hard criterion blocks instead of unlocking.
-// If the harness force-ends after its consecutive-block cap, the run fails
-// VISIBLY (criteria.json still shows passes:false), never falsely.
-//
-// Fail closed on bad input: unparseable JSON blocks, and so does parseable
-// JSON of the wrong shape (criteria not an array, null or non-object
-// entries). A gate that throws on malformed state and thereby lets the
-// stop through is no gate at all.
-//
-// Staleness is surfaced, never a free pass: a state file untouched for 24
-// hours still blocks, but the block reason states the age in hours and
-// points at the cancel file. An unattended timeout that allowed the stop
-// would let an abandoned or malformed run end as if it had succeeded, so
-// the escape for a genuine leftover stays explicit: touch .company/CANCEL.
+// Stop gate for /company runs: blocks the stop while any criterion fails
+// or lacks evidence. Fail closed on bad input (unparseable or wrong-shape
+// criteria.json blocks). The cancel file is the HUMAN's exit and block
+// reasons never name it. criteria.lock pins the id set: deleting a hard
+// criterion blocks instead of unlocking. Staleness is surfaced, never a
+// free pass. A harness force-stop leaves the run visibly failed.
 
 const fs = require('fs');
 const path = require('path');
@@ -32,16 +16,9 @@ const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
 const ownerPath = path.join(companyDir, 'OWNER');
 
-// Session scoping. The gate resolves its state dir from the working
-// directory, so without scoping a DIFFERENT session that merely shares the
-// directory gets blocked by a run it never started. The orchestrator records
-// owning session ids in .company/OWNER (one per line) at goal parse and on
-// resume; the harness pipes the stopping session's id on stdin. A session
-// not listed in OWNER passes straight through. A missing or empty OWNER file
-// is legacy state and keeps the old behavior: every session is gated (fail
-// closed). Manual escape for a wrongly gated legacy session: list its id in
-// ~/.claude/hooks/company-guard-exempt.txt (outside .company, so a foreign
-// run's own state is never touched).
+// Session scoping: only sessions listed in .company/OWNER are gated.
+// Missing or empty OWNER = legacy state, every session gated (fail closed).
+// Manual escape for legacy: ~/.claude/hooks/company-guard-exempt.txt.
 let sessionId = null;
 try {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -56,10 +33,7 @@ if (sessionId) {
   try {
     const rawOwners = fs.readFileSync(ownerPath, 'utf8')
       .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-    // A garbled OWNER (any line that does not look like a session id) fails
-    // CLOSED: the file is treated as corrupt and every session stays gated,
-    // matching the criteria.json philosophy. Only a clean id list can free
-    // a foreign session.
+    // Garbled OWNER fails closed: only a clean id list frees a foreign session.
     const valid = rawOwners.filter(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
     if (rawOwners.length > 0 && valid.length === rawOwners.length &&
         valid.indexOf(sessionId) === -1) process.exit(0);
@@ -69,8 +43,7 @@ if (sessionId) {
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 function block(reason) {
-  // The stopping session's id rides along so a wrongly gated session can be
-  // exempted with the exact id.
+  // Tag the session id so a wrongly gated session can be exempted exactly.
   const tag = sessionId ? ' [session ' + sessionId + ']' : '';
   console.log(JSON.stringify({ decision: 'block', reason: '[COMPANY] ' + reason + tag }));
   process.exit(0);
@@ -126,9 +99,7 @@ if (fs.existsSync(criteriaPath)) {
       'for the goal.' + stale);
   }
 
-  // Criterion lock: deleting a hard criterion must never satisfy the gate.
-  // The first run snapshots the id set to criteria.lock; later runs extend
-  // the lock with new ids and block if any locked id has vanished.
+  // criteria.lock: first sight snapshots ids, removal blocks, additions extend.
   const lockPath = path.join(companyDir, 'criteria.lock');
   const currentIds = all
     .filter(function (c) { return c && typeof c === 'object' && c.id !== undefined && c.id !== null; })
