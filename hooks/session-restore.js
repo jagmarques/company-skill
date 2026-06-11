@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 
-// Restore company state after compaction and drive the /company restart handoff.
-// PreCompact cannot make the model emit a prompt (shell-only, no model turn before
-// compaction), so the reliable trigger is here: right after compaction the model is
-// instructed to run /company restart (its mandatory verify and debate procedure)
-// and emit the handoff.
-//
-// SessionStart context must go through hookSpecificOutput.additionalContext.
-// That field reaches the model. systemMessage is a user-facing display only and
-// never enters the model's context.
+// Restores company context after compaction and instructs the model to run the
+// /company restart procedure before continuing.
+// Context must go through hookSpecificOutput.additionalContext - that field
+// reaches the model. systemMessage is user-facing display only and never enters
+// the model's context.
 
 const fs = require('fs');
 const path = require('path');
@@ -16,9 +12,8 @@ const path = require('path');
 const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
 if (!fs.existsSync(companyDir)) process.exit(0);
 
-// Only sessions that own the run are acted on. A foreign session that merely
-// shares the directory must not be redirected or have state written on its
-// behalf. Missing or empty OWNER is legacy state and keeps the old behavior.
+// Only sessions listed in OWNER are acted on. A foreign session that shares the
+// directory must not be redirected. Missing or empty OWNER keeps the old behavior.
 try {
   const hookInput = JSON.parse(fs.readFileSync(0, 'utf8'));
   if (hookInput && typeof hookInput.session_id === 'string') {
@@ -34,7 +29,6 @@ if (fs.existsSync(checkpointMd)) {
   state = fs.readFileSync(checkpointMd, 'utf8').substring(0, 2000);
 }
 
-// The post-compaction directive: run the restart procedure, do not just "continue".
 const directive =
   '[COMPANY] Context was compacted, so prior turn-by-turn state is gone. Before doing ' +
   'anything else, run the /company restart procedure from the skill: refresh ' +

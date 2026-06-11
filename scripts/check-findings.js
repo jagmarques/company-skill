@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// Mechanical gate for findings files: every FINDING line must be followed by
-// a SOURCE line (or NOVEL marker) before the next FINDING. Run at VERIFY:
-//   node scripts/check-findings.js .company/<dept>/<employee>.md [...]
-// Exit 1 names each unsourced finding. A claim without a source is unverifiable.
+// Gate for findings files: every FINDING line must be followed by a SOURCE
+// line (or NOVEL marker) before the next FINDING. A claim without a source
+// is unverifiable. Run: node scripts/check-findings.js .company/<dept>/<employee>.md [...]
 const fs = require('fs');
 const files = process.argv.slice(2);
 if (!files.length) { console.error('usage: check-findings.js <findings-file...>'); process.exit(2); }

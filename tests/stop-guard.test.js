@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 
-// Decision-logic matrix for hooks/stop-guard.js. Each case builds a fixture
-// state dir, runs the hook with COMPANY_DIR pointed at it, and asserts the
-// allow/block decision from the hook's stdout contract: a block prints a
-// JSON object with decision "block", an allow prints nothing and exits 0.
-// The CI floor (scripts/check.sh) runs this file, so a future edit cannot
-// regress the fail-closed behavior with CI still green.
+// Decision-logic matrix for hooks/stop-guard.js. Builds a fixture dir per case,
+// runs the hook with COMPANY_DIR pointed at it, and asserts allow/block from
+// stdout. A block emits JSON with decision "block"; allow exits 0 with no output.
+// Included in scripts/check.sh so a future edit cannot silently regress fail-closed.
 
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -65,13 +63,13 @@ function writeCriteria(dir, value) {
     typeof value === 'string' ? value : JSON.stringify(value));
 }
 
-// 1. No company state at all: the hook must stay silent (allow).
+// 1. No company state: hook must allow silently.
 {
   const d = freshDir();
   check('no state allows', d, 'allow');
 }
 
-// 2. CANCEL file: allows the stop AND is consumed so it cannot leak into a later run.
+// 2. CANCEL file allows and must be consumed so it cannot leak into a later run.
 {
   const d = freshDir();
   fs.writeFileSync(path.join(d, 'GOAL.md'), 'goal');
@@ -114,14 +112,14 @@ function writeCriteria(dir, value) {
   check('failing criterion blocks', d, 'block', 'ship it');
 }
 
-// 7. passes true with null evidence still blocks: evidence is the contract.
+// 7. passes:true without evidence still blocks; evidence is the contract.
 {
   const d = freshDir();
   writeCriteria(d, { criteria: [{ id: 1, description: 'ev gap', passes: true, evidence: null }] });
   check('passes without evidence blocks', d, 'block', 'ev gap');
 }
 
-// 8. All passing with evidence allows the stop.
+// 8. All criteria passing with evidence allows the stop.
 {
   const d = freshDir();
   writeCriteria(d, { criteria: [
@@ -154,7 +152,7 @@ function writeCriteria(dir, value) {
   check('stale still blocks with age note', d, 'block', 'untouched for');
 }
 
-// 12. Session scoping: a foreign session passes when OWNER names another session.
+// 12. A foreign session passes when OWNER names a different session.
 {
   const d = freshDir();
   writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
@@ -201,7 +199,7 @@ function writeCriteria(dir, value) {
     { input: JSON.stringify({ session_id: 'owner-eee' }) });
 }
 
-// 17. Deleting a locked criterion blocks even when everything left passes.
+// 17. Deleting a locked criterion blocks even when everything remaining passes.
 {
   const d = freshDir();
   writeCriteria(d, { criteria: [
@@ -213,7 +211,7 @@ function writeCriteria(dir, value) {
   check('deleting a locked criterion blocks', d, 'block', 'locked criterion');
 }
 
-// 18. Adding a criterion extends the lock and a fully passing set allows.
+// 18. Adding a criterion extends the lock; a fully passing set allows.
 {
   const d = freshDir();
   writeCriteria(d, { criteria: [
@@ -233,7 +231,7 @@ function writeCriteria(dir, value) {
   }
 }
 
-// 19. No block reason ever hands the model the cancel command.
+// 19. The block reason must not reveal the cancel command to the model.
 {
   const d = freshDir();
   writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-// Save company state AND reasoning before context compaction.
-// Saves both numbers (criteria, cycle) and intent (what we're trying and why).
+// Saves company state before context compaction so session-restore can rebuild
+// the model's context. Snapshots goal, cycle, briefing, review, criteria, roster,
+// and the TAIL of the playbook (new entries append at the bottom).
 
 const fs = require('fs');
 const path = require('path');
@@ -9,9 +10,9 @@ const path = require('path');
 const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
 if (!fs.existsSync(companyDir)) process.exit(0);
 
-// Only sessions that own the run are acted on. A foreign session that merely
-// shares the directory must not be redirected or have state written on its
-// behalf. Missing or empty OWNER is legacy state and keeps the old behavior.
+// Only sessions listed in OWNER are acted on. A foreign session that shares the
+// directory must not have state written on its behalf. Missing or empty OWNER
+// keeps the old behavior (act on all sessions).
 try {
   const hookInput = JSON.parse(fs.readFileSync(0, 'utf8'));
   if (hookInput && typeof hookInput.session_id === 'string') {
@@ -23,7 +24,6 @@ try {
 
 const lines = ['# Company Checkpoint (auto-saved before compaction)', ''];
 
-// Goal
 const goalPath = path.join(companyDir, 'GOAL.md');
 if (fs.existsSync(goalPath)) {
   lines.push('## Goal');
@@ -31,7 +31,6 @@ if (fs.existsSync(goalPath)) {
   lines.push('');
 }
 
-// Cycle number
 const cyclesDir = path.join(companyDir, 'cycles');
 if (fs.existsSync(cyclesDir)) {
   const files = fs.readdirSync(cyclesDir).filter(f => f.startsWith('cycle-'));
@@ -40,7 +39,6 @@ if (fs.existsSync(cyclesDir)) {
   lines.push('## Cycle: ' + cycle);
   lines.push('');
 
-  // Latest briefing (captures current reasoning/intent)
   const briefing = path.join(cyclesDir, `cycle-${cycle}-briefing.md`);
   if (fs.existsSync(briefing)) {
     lines.push('## Current Reasoning');
@@ -48,7 +46,6 @@ if (fs.existsSync(cyclesDir)) {
     lines.push('');
   }
 
-  // Latest review (captures what's working/failing)
   const review = path.join(cyclesDir, `cycle-${cycle}-review.md`);
   if (fs.existsSync(review)) {
     lines.push('## Latest Review');
@@ -57,7 +54,6 @@ if (fs.existsSync(cyclesDir)) {
   }
 }
 
-// Criteria status
 const criteriaPath = path.join(companyDir, 'criteria.json');
 if (fs.existsSync(criteriaPath)) {
   try {
@@ -71,7 +67,6 @@ if (fs.existsSync(criteriaPath)) {
   } catch (e) {}
 }
 
-// Active roster
 const rosterPath = path.join(companyDir, 'active-roster.md');
 if (fs.existsSync(rosterPath)) {
   lines.push('## Active Roster');
@@ -79,8 +74,7 @@ if (fs.existsSync(rosterPath)) {
   lines.push('');
 }
 
-// Playbook (accumulated lessons). New session entries are appended at the
-// bottom, so snapshot the TAIL, not the head.
+// New playbook entries append at the bottom, so snapshot the tail, not the head.
 const playbookPath = path.join(companyDir, 'playbook.md');
 if (fs.existsSync(playbookPath)) {
   const playbook = fs.readFileSync(playbookPath, 'utf8');
