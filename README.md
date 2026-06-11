@@ -37,7 +37,7 @@ graph LR
     B -.-> T
 ```
 
-The architecture is model agnostic. Frontier models like Claude Fable 5 carry this orchestration discipline built in. Here it ships as structural artifacts (delegation contracts, verify layers, failing-by-default criteria), so any model running any role follows the same rails. The orchestrator reads the goal and activates only the relevant employees. Leads decompose the goal into delegation contracts, workers execute them in parallel waves, and two reviewers gate every cycle: the Internal Reviewer re-runs the evidence and the Devil's Advocate attacks it. There is no iteration limit. The harness carries the quality, so none of it depends on the model remembering to be careful.
+It runs any model the way frontier models like Claude Fable 5 run themselves: delegation contracts, verify layers, and failing-by-default criteria ship as structural artifacts, so the discipline holds whichever model fills each role. The orchestrator reads the goal and activates only the relevant employees. Leads decompose the goal into delegation contracts, workers execute them in parallel waves, and two reviewers gate every cycle: the Internal Reviewer re-runs the evidence and the Devil's Advocate attacks it. There is no iteration limit. The harness carries the quality, so none of it depends on the model remembering to be careful.
 
 ## Delegation contracts
 
