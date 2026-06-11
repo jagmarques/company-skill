@@ -247,6 +247,15 @@ function writeCriteria(dir, value) {
   }
 }
 
+// 22. A garbled OWNER file fails closed: every session stays gated.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), Buffer.from([0, 1, 255, 10, 104, 105, 33, 33]));
+  check('garbled OWNER fails closed', d, 'block', 'criteria not met',
+    { input: JSON.stringify({ session_id: 'innocent-session-1' }) });
+}
+
 if (failures > 0) {
   console.log('STOP-GUARD TESTS FAILED: ' + failures);
   process.exit(1);

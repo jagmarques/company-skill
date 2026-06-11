@@ -139,7 +139,7 @@ A Stop Hook reads this file and blocks Claude from exiting until every criterion
 
 The gate is session-scoped: the orchestrator records its session id in `.company/OWNER` at goal parse, and only sessions listed there are ever blocked. An unrelated session that happens to share the working directory passes straight through, and the compaction hooks apply the same scoping so a foreign session is never redirected into someone else's restart. Legacy state without an OWNER file keeps the old block-everyone behavior, with a manual escape list at `~/.claude/hooks/company-guard-exempt.txt`.
 
-The guard's decision matrix is pinned by a 21-check test (`tests/stop-guard.test.js`) that executes the shipped hook against fixture state: malformed JSON blocks, passes-true with null evidence blocks, the cancel file allows exactly once, stale state still blocks with its age named, deleting a locked criterion blocks, foreign sessions pass the owner gate, and no block reason ever names the cancel command. A regression to the fail-closed behavior turns CI red.
+The guard's decision matrix is pinned by a 22-check test (`tests/stop-guard.test.js`) that executes the shipped hook against fixture state: malformed JSON blocks, passes-true with null evidence blocks, the cancel file allows exactly once, stale state still blocks with its age named, deleting a locked criterion blocks, foreign sessions pass the owner gate, and no block reason ever names the cancel command. A regression to the fail-closed behavior turns CI red.
 
 ## Self-improving playbook
 

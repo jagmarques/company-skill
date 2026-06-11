@@ -54,9 +54,15 @@ if (sessionId) {
     if (exempt.split('\n').some(function (l) { return l.trim() === sessionId; })) process.exit(0);
   } catch (e) {}
   try {
-    const owners = fs.readFileSync(ownerPath, 'utf8')
+    const rawOwners = fs.readFileSync(ownerPath, 'utf8')
       .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-    if (owners.length > 0 && owners.indexOf(sessionId) === -1) process.exit(0);
+    // A garbled OWNER (any line that does not look like a session id) fails
+    // CLOSED: the file is treated as corrupt and every session stays gated,
+    // matching the criteria.json philosophy. Only a clean id list can free
+    // a foreign session.
+    const valid = rawOwners.filter(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
+    if (rawOwners.length > 0 && valid.length === rawOwners.length &&
+        valid.indexOf(sessionId) === -1) process.exit(0);
   } catch (e) {}
 }
 
