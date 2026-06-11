@@ -27,13 +27,13 @@ Optionally define your team first in `COMPANY.md` (skip it and a minimal company
 ```mermaid
 graph LR
     G[GOAL] --> T[THINK]
-    T -->|contract shape gate| E[EXECUTE]
+    T -->|contract shape gate| E[EXECUTE in dependency waves]
     E -->|findings shape gate| V[VERIFY]
     V -->|reviewer re-derives + critic attacks| D{Done?}
     D -->|NO: feedback| C[COMPRESS]
     C --> T
-    D -->|YES| S[STATUS.md]
-    D -.->|stop attempt while failing| B[stop guard blocks]
+    D -->|YES| S[STATUS.md + playbook]
+    D -.->|stop blocked with the goal and failing notes| B[stop guard]
     B -.-> T
 ```
 
