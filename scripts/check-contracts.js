@@ -10,6 +10,36 @@ const text = fs.readFileSync(file, 'utf8');
 const blocks = text.split(/\n(?=TASK:)/).filter(b => b.trim().startsWith('TASK:'));
 if (blocks.length === 0) { console.error('no TASK blocks found'); process.exit(1); }
 const FIELDS = ['TASK:', 'EMPLOYEE:', 'SKILL:', 'INPUTS:', 'OUTPUT:', 'DONE-WHEN:', 'VERIFY-WITH:', 'OUT-OF-SCOPE:'];
+// DEPENDS-ON is optional. When present it must name existing task numbers
+// and the dependency graph must be acyclic.
+function checkDeps(blocks) {
+  const errs = [];
+  const deps = blocks.map((b, i) => {
+    const m = b.match(/DEPENDS-ON:\s*(.+)/);
+    if (!m) return [];
+    const v = m[1].trim();
+    if (/^none$/i.test(v)) return [];
+    if (!/^\d+(\s*(,|and)\s*\d+)*$/i.test(v)) {
+      errs.push('contract ' + (i + 1) + ': DEPENDS-ON must be "none" or task numbers, got: ' + v.slice(0, 40));
+      return [];
+    }
+    return v.match(/\d+/g).map(Number);
+  });
+  deps.forEach((ds, i) => ds.forEach(d => {
+    if (d < 1 || d > blocks.length) errs.push('contract ' + (i + 1) + ': DEPENDS-ON names missing task ' + d);
+    if (d === i + 1) errs.push('contract ' + (i + 1) + ': depends on itself');
+  }));
+  const state = new Array(blocks.length).fill(0);
+  function visit(i, trail) {
+    if (state[i] === 1) { errs.push('dependency cycle: ' + trail.concat(i + 1).join(' -> ')); return; }
+    if (state[i] === 2) return;
+    state[i] = 1;
+    deps[i].forEach(d => { if (d >= 1 && d <= blocks.length) visit(d - 1, trail.concat(i + 1)); });
+    state[i] = 2;
+  }
+  for (let i = 0; i < blocks.length; i++) visit(i, []);
+  return errs;
+}
 let bad = 0;
 blocks.forEach((b, i) => {
   const missing = FIELDS.filter(f => !b.includes(f));
@@ -19,5 +49,7 @@ blocks.forEach((b, i) => {
   if (b.includes('VERIFY-WITH:') && vw.length < 8) errs.push('VERIFY-WITH is empty or vacuous');
   if (errs.length) { bad += 1; console.error('contract ' + (i + 1) + ': ' + errs.join(', ')); }
 });
-if (bad) { console.error(bad + '/' + blocks.length + ' contracts defective'); process.exit(1); }
+const depErrs = checkDeps(blocks);
+depErrs.forEach(e => console.error(e));
+if (bad || depErrs.length) { console.error((bad + depErrs.length) + ' defects across ' + blocks.length + ' contracts'); process.exit(1); }
 console.log(blocks.length + ' contracts well-formed');

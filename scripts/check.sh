@@ -111,6 +111,13 @@ else
   note_fail "stop-guard decision matrix failed"
 fi
 
+# 12. Contract checker matrix: field and DEPENDS-ON validation must hold.
+if node tests/check-contracts.test.js; then
+  echo "ok: contract checker matrix"
+else
+  note_fail "contract checker matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
