@@ -104,6 +104,7 @@ OUTPUT: FINDING + SOURCE lines appended to .company/{dept}/{employee}.md
 DONE-WHEN: {one machine-checkable condition}
 VERIFY-WITH: {the exact command whose output proves DONE-WHEN}
 OUT-OF-SCOPE: {what this task must not touch}
+DEPENDS-ON: {task numbers this task needs finished first, or "none"}
 ```
 
 No command, no task. If nobody can write a VERIFY-WITH command (or an equally concrete check, like a named URL to screenshot), the task is not ready to assign. Vague delegations are rejected structurally, not patched at review time.
@@ -134,9 +135,9 @@ If a lead sees a skill gap: it writes `HIRE: {role}, {why}` and you add the role
 
 Collect every lead's contracts and run the mechanical shape gate: `node scripts/check-contracts.js .company/cycles/cycle-{N}-tasks.md` (in the installed skill: the scripts directory next to SKILL.md). A contract missing a field or carrying a vacuous VERIFY-WITH is returned to its lead, never patched silently. Then dedup by SURFACE, not by task string: list the files, pages, and endpoints each task touches. Two tasks touching the same surface get merged into one worker or serialized. One worker per surface per cycle. Write the merged list to `.company/cycles/cycle-{N}-tasks.md` and `.company/active-tasks.md`, one task per line.
 
-### EXECUTE (orchestrator spawns all workers in parallel)
+### EXECUTE (orchestrator spawns workers in dependency waves)
 
-Spawn one `company-worker` Agent call per contract, ALL in a single message. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
+Spawn one `company-worker` Agent call per contract. Contracts with `DEPENDS-ON: none` (or every dependency already completed) form the current wave and ALL go in a single message; dependents wait for their wave. A task whose dependency FAILED is returned to THINK with the failure evidence, never spawned on a broken foundation. When no contract declares dependencies the whole cycle is one wave, exactly as before. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
 
 If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. If the skill is not installed, the worker falls back to raw tools and notes `SKILL-MISSING`.
 
@@ -205,7 +206,7 @@ FIRE: {roles that produced nothing, marked [inactive] in COMPANY.md}
 TOP: {employees with best findings, for priority activation next time}
 ```
 
-Every WORKED, FAILED, and FIRE line cites the cycle artifact that proves it. The playbook is the ONLY self-improvement file. It accumulates across sessions. It is pasted into lead prompts before every THINK phase. One file, all lessons.
+Every WORKED, FAILED, and FIRE line cites the cycle artifact that proves it. The playbook is the ONLY self-improvement file. It accumulates across sessions. It is pasted into lead prompts before every THINK phase. One file, all lessons. Group entries under bracketed topic headings (## [debugging], ## [outreach]) once it grows, so leads can pull targeted history with a grep instead of the whole tail.
 
 As CEO, update COMPANY.md: tag `[inactive]` on zero-contribution roles, `[priority]` on top performers, add any hired roles.
 
