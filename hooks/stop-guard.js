@@ -131,10 +131,19 @@ if (fs.existsSync(criteriaPath)) {
 
   if (failing.length === 0) process.exit(0);
 
-  const failList = failing.map(c =>
-    (c && typeof c === 'object' && c.description) ? c.description : '(malformed entry)'
-  ).join(', ');
-  block(failing.length + '/' + all.length + ' criteria not met: ' + failList +
+  // Surface the reviewer's note per failing criterion so the block reason is
+  // actionable feedback, not just a name list.
+  const failList = failing.map(c => {
+    if (!c || typeof c !== 'object') return '(malformed entry)';
+    const note = typeof c.note === 'string' && c.note.trim() ? ' [' + c.note.trim().slice(0, 120) + ']' : '';
+    return (c.description || '(no description)') + note;
+  }).join(', ');
+  let goalLine = '';
+  try {
+    goalLine = fs.readFileSync(goalPath, 'utf8').split('\n').find(function (l) { return l.trim(); }) || '';
+    if (goalLine) goalLine = 'GOAL: ' + goalLine.trim().slice(0, 100) + ' | ';
+  } catch (e) {}
+  block(goalLine + failing.length + '/' + all.length + ' criteria not met: ' + failList +
     '. Continue THINK > EXECUTE > VERIFY. passes:true counts only with non-null ' +
     'evidence reproduced by the reviewer.' + stale);
 }

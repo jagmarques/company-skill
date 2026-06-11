@@ -256,6 +256,21 @@ function writeCriteria(dir, value) {
     { input: JSON.stringify({ session_id: 'innocent-session-1' }) });
 }
 
+// 23. A reviewer note on a failing criterion surfaces in the block reason.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'deploy verified', passes: false, evidence: null, note: 'prod still on old sha, re-probe after deploy' }] });
+  check('failing criterion note surfaces', d, 'block', 'prod still on old sha');
+}
+
+// 24. The block reason opens with the goal's first line when GOAL.md exists.
+{
+  const d = freshDir();
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'ship the payments retry queue\nmore detail');
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  check('goal line opens the block reason', d, 'block', 'GOAL: ship the payments retry queue');
+}
+
 if (failures > 0) {
   console.log('STOP-GUARD TESTS FAILED: ' + failures);
   process.exit(1);
