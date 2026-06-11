@@ -234,6 +234,11 @@ Leads assign a skill in the contract when the task matches. Workers invoke it vi
 | Plan work | /gsd-plan-phase | Break complex task into steps |
 | Browse/test site | /browse | Navigate URLs, check page state, screenshots |
 | Public-facing text | /humanizer | Any PR body, comment, email, post, or README copy, run it BEFORE publishing |
+| Post-deploy monitoring | /canary | After the MERGE GATE on goals with a web deployment, watch prod before the cycle review credits the merge |
+| Report-only QA | /qa-only | VERIFY-phase evidence collection on web goals where the contract is find, not fix |
+| Performance gate | /benchmark | Before and after merging perf-sensitive frontend changes, a REGRESSION row blocks the merge |
+| Second-opinion review | /codex | High-stakes merges where the reviewer or critic flags uncertainty, skip when the codex binary is absent |
+| Post-goal retrospective | /retro | After STATUS.md is written, its commit and session analysis enriches the playbook entry |
 
 If no skill matches, or an assigned skill is not installed (`SKILL-MISSING`), workers use raw tools (Read, Write, Bash, etc.).
 
