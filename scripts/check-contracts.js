@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// Mechanical gate for delegation contracts: every TASK block must carry all
-// seven fields and a non-empty VERIFY-WITH. Run before EXECUTE:
-//   node scripts/check-contracts.js .company/cycles/cycle-N-tasks.md
-// Exit 1 lists each defective contract. No fields, no task.
+// Gate for delegation contracts: every TASK block must carry all seven fields
+// and a non-empty VERIFY-WITH. Exit 1 lists each defective contract.
+// Run: node scripts/check-contracts.js .company/cycles/cycle-N-tasks.md
 const fs = require('fs');
 const file = process.argv[2];
 if (!file || !fs.existsSync(file)) { console.error('usage: check-contracts.js <tasks-file>'); process.exit(2); }
@@ -10,8 +9,8 @@ const text = fs.readFileSync(file, 'utf8');
 const blocks = text.split(/\n(?=TASK:)/).filter(b => b.trim().startsWith('TASK:'));
 if (blocks.length === 0) { console.error('no TASK blocks found'); process.exit(1); }
 const FIELDS = ['TASK:', 'EMPLOYEE:', 'SKILL:', 'INPUTS:', 'OUTPUT:', 'DONE-WHEN:', 'VERIFY-WITH:', 'OUT-OF-SCOPE:'];
-// DEPENDS-ON is optional. When present it must name existing task numbers
-// and the dependency graph must be acyclic.
+// DEPENDS-ON is optional. When present it must name existing task numbers and the
+// dependency graph must be acyclic.
 function checkDeps(blocks) {
   const errs = [];
   const deps = blocks.map((b, i) => {

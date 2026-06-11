@@ -1,6 +1,6 @@
 #!/bin/bash
-# Installs the /company skill, commands, agents, AND hooks. Idempotent:
-# re-running overwrites the copied files and never duplicates hook entries.
+# Installs the /company skill, commands, agents, and hooks.
+# Idempotent: re-running overwrites copied files and never duplicates hook entries.
 set -e
 
 REPO="https://raw.githubusercontent.com/jagmarques/company-skill/main"
@@ -33,7 +33,7 @@ for agent in lead worker reviewer critic digest; do
   fetch "$REPO/agents/company-$agent.md" "$HOME/.claude/agents/company-$agent.md" || echo "Warning: failed to download agent company-$agent"
 done
 
-# Hooks (the stop gate and the compaction machinery live here)
+# Hooks
 mkdir -p "$HOME/.claude/hooks"
 for pair in "stop-guard company-stop-guard" "precompact company-precompact" "session-restore company-session-restore"; do
   src="${pair%% *}"
@@ -41,9 +41,8 @@ for pair in "stop-guard company-stop-guard" "precompact company-precompact" "ses
   fetch "$REPO/hooks/$src.js" "$HOME/.claude/hooks/$dest.js" || echo "Warning: failed to download hook $src"
 done
 
-# Register hooks in ~/.claude/settings.json. JSON editing from shell is not
-# safe without a JSON tool, so use node when available and print exact manual
-# steps otherwise. The merge is idempotent: existing entries are kept.
+# JSON editing from shell is unsafe without a JSON tool. Use node when available
+# and print exact manual steps otherwise. The merge is idempotent.
 if command -v node >/dev/null 2>&1; then
   node <<'EOF'
 const fs = require('fs');
