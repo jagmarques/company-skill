@@ -3,10 +3,14 @@
 // Stop gate for /company runs. Blocks the session from stopping while any
 // criterion in criteria.json is failing or missing evidence.
 //
-// The ONLY escape hatch is the cancel file: touch .company/CANCEL
-// There is deliberately no timing-based escape. A repeated stop attempt is
-// blocked again with the same reason until the criteria genuinely pass or
-// the run is cancelled.
+// The ONLY escape hatch is the cancel file, and it belongs to the HUMAN
+// operator: the block reasons deliberately do not name it, so a blocked
+// model is never handed its own override. There is no timing-based escape.
+// A repeated stop attempt is blocked again until the criteria genuinely
+// pass or the human cancels. The criterion id set is locked on first sight
+// (criteria.lock): deleting a hard criterion blocks instead of unlocking.
+// If the harness force-ends after its consecutive-block cap, the run fails
+// VISIBLY (criteria.json still shows passes:false), never falsely.
 //
 // Fail closed on bad input: unparseable JSON blocks, and so does parseable
 // JSON of the wrong shape (criteria not an array, null or non-object
@@ -74,7 +78,7 @@ function staleNote(p) {
     if (ms > STALE_MS) {
       return ' NOTE: this state file has been untouched for ' +
         Math.round(ms / 3600000) + ' hours. If it is a leftover from an old ' +
-        'run, cancel it: touch .company/CANCEL';
+        'run, a human operator can cancel it (see the README)';
     }
   } catch (e) {}
   return '';
@@ -98,7 +102,7 @@ if (fs.existsSync(criteriaPath)) {
   } catch (e) {
     // Fail closed: broken JSON is not a free pass out of the gate.
     block('criteria.json is unparseable. Repair the JSON so the criteria can be ' +
-      'checked honestly. To cancel the run instead: touch .company/CANCEL' + stale);
+      'checked honestly.' + stale);
   }
 
   // Fail closed on the wrong shape too: a parseable file whose criteria
@@ -106,14 +110,41 @@ if (fs.existsSync(criteriaPath)) {
   if (!data || typeof data !== 'object' || !Array.isArray(data.criteria)) {
     block('criteria.json has the wrong shape: "criteria" must be an array of ' +
       '{id, description, passes, evidence} objects. Repair it so the criteria ' +
-      'can be checked honestly. To cancel the run instead: touch .company/CANCEL' + stale);
+      'can be checked honestly.' + stale);
   }
 
   const all = data.criteria;
 
   if (all.length === 0) {
     block('criteria.json has zero criteria. Write real yes/no checkable criteria ' +
-      'for the goal. To cancel the run instead: touch .company/CANCEL' + stale);
+      'for the goal.' + stale);
+  }
+
+  // Criterion lock: deleting a hard criterion must never satisfy the gate.
+  // The first run snapshots the id set to criteria.lock; later runs extend
+  // the lock with new ids and block if any locked id has vanished.
+  const lockPath = path.join(companyDir, 'criteria.lock');
+  const currentIds = all
+    .filter(function (c) { return c && typeof c === 'object' && c.id !== undefined && c.id !== null; })
+    .map(function (c) { return String(c.id); });
+  let lockedIds = null;
+  try {
+    lockedIds = fs.readFileSync(lockPath, 'utf8')
+      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+  } catch (e) {}
+  if (lockedIds === null) {
+    try { fs.writeFileSync(lockPath, currentIds.join('\n') + '\n'); } catch (e) {}
+  } else {
+    const missing = lockedIds.filter(function (id) { return currentIds.indexOf(id) === -1; });
+    if (missing.length > 0) {
+      block('locked criterion id(s) removed from criteria.json: ' + missing.join(', ') +
+        '. Criteria are never deleted to satisfy the gate; restore them and meet them.' +
+        stale);
+    }
+    const added = currentIds.filter(function (id) { return lockedIds.indexOf(id) === -1; });
+    if (added.length > 0) {
+      try { fs.writeFileSync(lockPath, lockedIds.concat(added).join('\n') + '\n'); } catch (e) {}
+    }
   }
 
   // passes:true requires non-null evidence. The VERIFY phase writes the
@@ -128,10 +159,10 @@ if (fs.existsSync(criteriaPath)) {
   ).join(', ');
   block(failing.length + '/' + all.length + ' criteria not met: ' + failList +
     '. Continue THINK > EXECUTE > VERIFY. passes:true counts only with non-null ' +
-    'evidence reproduced by the reviewer. To cancel the run: touch .company/CANCEL' + stale);
+    'evidence reproduced by the reviewer.' + stale);
 }
 
 // Goal exists but criteria.json was never written
 block('Goal not achieved. Create .company/criteria.json and start ' +
-  'THINK > EXECUTE > VERIFY. To cancel the run: touch .company/CANCEL' +
+  'THINK > EXECUTE > VERIFY.' +
   staleNote(goalPath));

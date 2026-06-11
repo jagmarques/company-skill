@@ -201,6 +201,52 @@ function writeCriteria(dir, value) {
     { input: JSON.stringify({ session_id: 'owner-eee' }) });
 }
 
+// 17. Deleting a locked criterion blocks even when everything left passes.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: false, evidence: null },
+    { id: 2, description: 'hard', passes: false, evidence: null }] });
+  runHook(d); // first sight snapshots ids 1,2 into criteria.lock
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: true, evidence: 'real' }] });
+  check('deleting a locked criterion blocks', d, 'block', 'locked criterion');
+}
+
+// 18. Adding a criterion extends the lock and a fully passing set allows.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'a', passes: false, evidence: null }] });
+  runHook(d); // lock holds id 1
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'a', passes: true, evidence: 'real' },
+    { id: 2, description: 'added by reviewer', passes: true, evidence: 'real' }] });
+  check('added criterion extends lock and passing set allows', d, 'allow');
+  const lock = fs.readFileSync(path.join(d, 'criteria.lock'), 'utf8');
+  caseNo += 1;
+  if (lock.indexOf('2') === -1) {
+    console.log('FAIL case ' + caseNo + ' (lock extended with new id): id 2 missing from lock');
+    failures += 1;
+  } else {
+    console.log('ok: case ' + caseNo + ' lock extended with new id');
+  }
+}
+
+// 19. No block reason ever hands the model the cancel command.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  const out = check('failing criteria block reason exists', d, 'block', 'criteria not met');
+  caseNo += 1;
+  if (out.indexOf('touch .company/CANCEL') !== -1) {
+    console.log('FAIL case ' + caseNo + ' (cancel command not advertised): reason names the override');
+    failures += 1;
+  } else {
+    console.log('ok: case ' + caseNo + ' cancel command not advertised');
+  }
+}
+
 if (failures > 0) {
   console.log('STOP-GUARD TESTS FAILED: ' + failures);
   process.exit(1);
