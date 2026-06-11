@@ -145,7 +145,9 @@ If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. I
 
 **Scope:** do ONLY the assigned task. Adjacent problems get one line in findings (`ALSO-FOUND: ...`) for the next THINK, never fixed unbidden.
 
-**Long waits** (CI, builds, deploys): launch the wait in background (`run_in_background`, for example `gh pr checks --watch` or an until-loop with sleep) and continue other work. Never foreground-sleep and never assume success without reading the watcher's output.
+**Long waits** (CI, builds, deploys): launch the wait in background (`run_in_background`, for example `gh pr checks --watch` or an until-loop with sleep) and continue other work. Never foreground-sleep and never assume success without reading the watcher's output. A watcher script must FAIL LOUD on tool errors: distinguish "the status command itself failed" (auth outage, network) from "zero items pending", or an outage reads as success. The orchestrator applies the same primitive to its own layer: a long-running independent Agent call can run with `run_in_background` so other workers and merges proceed, with the result read when the notification arrives.
+
+**Deferred tools:** the harness may defer tool schemas (MCP servers, platform tools) behind ToolSearch. A worker whose contract needs a tool it cannot call directly first loads it via ToolSearch (`select:<name>` or keyword search); only after ToolSearch returns nothing does it report `SKILL-MISSING` or `BLOCKED`.
 
 Every finding MUST have:
 ```
