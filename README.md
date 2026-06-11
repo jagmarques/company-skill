@@ -51,12 +51,14 @@ curl -fsSL https://raw.githubusercontent.com/jagmarques/company-skill/main/insta
 ```mermaid
 graph LR
     G[GOAL] --> T[THINK]
-    T -->|leads return contracts| E[EXECUTE]
-    E -->|orchestrator spawns all workers| V[VERIFY]
+    T -->|contract shape gate| E[EXECUTE]
+    E -->|findings shape gate| V[VERIFY]
     V -->|reviewer re-derives + critic attacks| D{Done?}
     D -->|NO: feedback| C[COMPRESS]
     C --> T
     D -->|YES| S[STATUS.md]
+    D -.->|stop attempt while failing| B[stop guard blocks]
+    B -.-> T
 ```
 
 The loop stops only when the Internal Reviewer reproduces the evidence for every criterion and the Devil's Advocate accepts. There is no iteration limit.
