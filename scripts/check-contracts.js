@@ -13,12 +13,18 @@ const FIELDS = ['TASK:', 'EMPLOYEE:', 'SKILL:', 'INPUTS:', 'OUTPUT:', 'DONE-WHEN
 // DEPENDS-ON is optional. When present it must name existing task numbers
 // and the dependency graph must be acyclic.
 function checkDeps(blocks) {
-  const deps = blocks.map(b => {
-    const m = b.match(/DEPENDS-ON:\s*(.+)/);
-    if (!m || /^none\b/i.test(m[1].trim())) return [];
-    return (m[1].match(/\d+/g) || []).map(Number);
-  });
   const errs = [];
+  const deps = blocks.map((b, i) => {
+    const m = b.match(/DEPENDS-ON:\s*(.+)/);
+    if (!m) return [];
+    const v = m[1].trim();
+    if (/^none$/i.test(v)) return [];
+    if (!/^\d+(\s*(,|and)\s*\d+)*$/i.test(v)) {
+      errs.push('contract ' + (i + 1) + ': DEPENDS-ON must be "none" or task numbers, got: ' + v.slice(0, 40));
+      return [];
+    }
+    return v.match(/\d+/g).map(Number);
+  });
   deps.forEach((ds, i) => ds.forEach(d => {
     if (d < 1 || d > blocks.length) errs.push('contract ' + (i + 1) + ': DEPENDS-ON names missing task ' + d);
     if (d === i + 1) errs.push('contract ' + (i + 1) + ': depends on itself');

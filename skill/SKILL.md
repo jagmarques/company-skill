@@ -137,7 +137,7 @@ Collect every lead's contracts and run the mechanical shape gate: `node scripts/
 
 ### EXECUTE (orchestrator spawns workers in dependency waves)
 
-Spawn one `company-worker` Agent call per contract. Contracts with `DEPENDS-ON: none` (or every dependency already completed) form the current wave and ALL go in a single message; dependents wait for their wave. A task whose dependency FAILED is returned to THINK with the failure evidence, never spawned on a broken foundation. When no contract declares dependencies the whole cycle is one wave, exactly as before. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
+Spawn one `company-worker` Agent call per contract. Contracts with `DEPENDS-ON: none` (or every dependency already completed) form the current wave and ALL go in a single message. Dependents wait for their wave. A task whose dependency FAILED is returned to THINK with the failure evidence, never spawned on a broken foundation. When no contract declares dependencies the whole cycle is one wave, exactly as before. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
 
 If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. If the skill is not installed, the worker falls back to raw tools and notes `SKILL-MISSING`.
 

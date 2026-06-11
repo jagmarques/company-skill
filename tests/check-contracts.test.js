@@ -25,5 +25,7 @@ check('valid dependency passes', GOOD + '\n' + GOOD.replace('DEPENDS-ON: none', 
 check('missing dep target fails', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 9'), 1);
 check('self dependency fails', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 1'), 1);
 check('cycle fails', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 2') + '\n' + GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 1'), 1);
+check('prose with incidental digit fails clearly', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: see the v3 plan'), 1);
+check('comma list passes', GOOD + '\n' + GOOD + '\n' + GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 1, 2'), 0);
 if (failures) { console.log('CHECK-CONTRACTS TESTS FAILED: ' + failures); process.exit(1); }
 console.log('ALL CHECK-CONTRACTS TESTS PASSED (' + n + ' checks)');
