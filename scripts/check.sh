@@ -103,6 +103,14 @@ else
   echo "ok: no leaked brand names"
 fi
 
+# 11. Stop-guard decision-logic matrix: the fail-closed behavior is load-bearing
+#     and must not regress silently behind a green parse check.
+if node tests/stop-guard.test.js; then
+  echo "ok: stop-guard decision matrix"
+else
+  note_fail "stop-guard decision matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
