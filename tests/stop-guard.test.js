@@ -21,10 +21,12 @@ function freshDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'stop-guard-test-'));
 }
 
-function runHook(dir) {
+function runHook(dir, opts) {
+  opts = opts || {};
   const out = execFileSync(process.execPath, [HOOK], {
-    env: Object.assign({}, process.env, { COMPANY_DIR: dir }),
+    env: Object.assign({}, process.env, { COMPANY_DIR: dir }, opts.env || {}),
     encoding: 'utf8',
+    input: opts.input === undefined ? '' : opts.input,
   });
   return out.trim();
 }
@@ -35,11 +37,11 @@ function decide(out) {
   return parsed.decision === 'block' ? 'block' : 'allow';
 }
 
-function check(name, dir, expected, reasonSubstring) {
+function check(name, dir, expected, reasonSubstring, opts) {
   caseNo += 1;
   let out;
   try {
-    out = runHook(dir);
+    out = runHook(dir, opts);
   } catch (e) {
     console.log('FAIL case ' + caseNo + ' (' + name + '): hook crashed: ' + e.message);
     failures += 1;
@@ -150,6 +152,108 @@ function writeCriteria(dir, value) {
   const old = (Date.now() - 30 * 60 * 60 * 1000) / 1000;
   fs.utimesSync(path.join(d, 'criteria.json'), old, old);
   check('stale still blocks with age note', d, 'block', 'untouched for');
+}
+
+// 12. Session scoping: a foreign session passes when OWNER names another session.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), 'owner-aaa\n');
+  check('foreign session passes owner gate', d, 'allow', null,
+    { input: JSON.stringify({ session_id: 'other-bbb' }) });
+}
+
+// 13. The owning session still blocks, with its id tagged in the reason.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), 'owner-aaa\n');
+  check('owner session still blocks', d, 'block', '[session owner-aaa]',
+    { input: JSON.stringify({ session_id: 'owner-aaa' }) });
+}
+
+// 14. Missing OWNER is legacy state: every session blocks (fail closed).
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  check('missing OWNER blocks any session', d, 'block', 'criteria not met',
+    { input: JSON.stringify({ session_id: 'any-ccc' }) });
+}
+
+// 15. The exempt file frees a listed session even when OWNER names it.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), 'stuck-ddd\n');
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude', 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'hooks', 'company-guard-exempt.txt'), 'stuck-ddd\n');
+  check('exempt file frees a listed session', d, 'allow', null,
+    { input: JSON.stringify({ session_id: 'stuck-ddd' }), env: { HOME: home } });
+}
+
+// 16. Multi-line OWNER gates every listed session.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), 'owner-aaa\nowner-eee\n');
+  check('second listed owner blocks too', d, 'block', '[session owner-eee]',
+    { input: JSON.stringify({ session_id: 'owner-eee' }) });
+}
+
+// 17. Deleting a locked criterion blocks even when everything left passes.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: false, evidence: null },
+    { id: 2, description: 'hard', passes: false, evidence: null }] });
+  runHook(d); // first sight snapshots ids 1,2 into criteria.lock
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: true, evidence: 'real' }] });
+  check('deleting a locked criterion blocks', d, 'block', 'locked criterion');
+}
+
+// 18. Adding a criterion extends the lock and a fully passing set allows.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'a', passes: false, evidence: null }] });
+  runHook(d); // lock holds id 1
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'a', passes: true, evidence: 'real' },
+    { id: 2, description: 'added by reviewer', passes: true, evidence: 'real' }] });
+  check('added criterion extends lock and passing set allows', d, 'allow');
+  const lock = fs.readFileSync(path.join(d, 'criteria.lock'), 'utf8');
+  caseNo += 1;
+  if (lock.indexOf('2') === -1) {
+    console.log('FAIL case ' + caseNo + ' (lock extended with new id): id 2 missing from lock');
+    failures += 1;
+  } else {
+    console.log('ok: case ' + caseNo + ' lock extended with new id');
+  }
+}
+
+// 19. No block reason ever hands the model the cancel command.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  const out = check('failing criteria block reason exists', d, 'block', 'criteria not met');
+  caseNo += 1;
+  if (out.indexOf('touch .company/CANCEL') !== -1) {
+    console.log('FAIL case ' + caseNo + ' (cancel command not advertised): reason names the override');
+    failures += 1;
+  } else {
+    console.log('ok: case ' + caseNo + ' cancel command not advertised');
+  }
+}
+
+// 22. A garbled OWNER file fails closed: every session stays gated.
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), Buffer.from([0, 1, 255, 10, 104, 105, 33, 33]));
+  check('garbled OWNER fails closed', d, 'block', 'criteria not met',
+    { input: JSON.stringify({ session_id: 'innocent-session-1' }) });
 }
 
 if (failures > 0) {

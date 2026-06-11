@@ -16,6 +16,18 @@ const path = require('path');
 const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
 if (!fs.existsSync(companyDir)) process.exit(0);
 
+// Only sessions that own the run are acted on. A foreign session that merely
+// shares the directory must not be redirected or have state written on its
+// behalf. Missing or empty OWNER is legacy state and keeps the old behavior.
+try {
+  const hookInput = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (hookInput && typeof hookInput.session_id === 'string') {
+    const owners = fs.readFileSync(path.join(companyDir, 'OWNER'), 'utf8')
+      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    if (owners.length > 0 && owners.indexOf(hookInput.session_id) === -1) process.exit(0);
+  }
+} catch (e) {}
+
 const checkpointMd = path.join(companyDir, '.checkpoint.md');
 let state = '';
 if (fs.existsSync(checkpointMd)) {

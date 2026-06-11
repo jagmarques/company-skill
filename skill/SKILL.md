@@ -74,9 +74,10 @@ Otherwise:
 ]}
 ```
 
-Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time.
+Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time. When writing criteria.json for a NEW goal, delete any stale `.company/criteria.lock` from a previous run first. The stop guard re-snapshots the new id set on first sight.
 
-4. Read `.company/playbook.md` if it exists (accumulated knowledge from past sessions).
+4. Record run ownership: write this session's id to `.company/OWNER` (`echo "$CLAUDE_CODE_SESSION_ID" > .company/OWNER` for a new run. When RESUMING an existing run, append with `>>` instead of overwriting). The stop guard and the compaction hooks act only on sessions listed there, so an unrelated session that happens to share the directory is never gated or redirected by your run. The id written must be the same identifier the harness pipes to hooks as `session_id` (in Claude Code both are the session id, exposed to Bash as `CLAUDE_CODE_SESSION_ID`). If a harness ever diverges the two, the gate cannot recognize its owner.
+5. Read `.company/playbook.md` if it exists (accumulated knowledge from past sessions).
 
 ## Reporting discipline (applies to EVERY output, every role)
 
@@ -233,11 +234,17 @@ If no skill matches, or an assigned skill is not installed (`SKILL-MISSING`), wo
 
 ## Model assignment
 
-Each agent file carries a `model` field in its frontmatter: leads, reviewer, and critic on a strong model, workers on a mid-tier model, the digest on the cheapest. If your harness honors per-agent model selection, that is the entire mechanism. If it does not, agents inherit the session's model and that is fine. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Agent call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
+The architecture is MODEL-AGNOSTIC by design. The discipline (single-orchestrator spawning, delegation contracts with VERIFY-WITH, the FINDING + SOURCE evidence rule, reviewer-only criteria flips, the critic gate before every merge, loop-until-done) is carried by artifacts the harness enforces (the stop guard, the criterion lock, session ownership, CI checks on this repo) plus the contract text every agent receives, NOT by the intelligence of the model running it. Whichever model runs the orchestrator or any agent, the same gates apply, the same files must exist, and the same evidence must reproduce. Never skip a gate because the model is strong, and never excuse missing evidence because the task is small.
+
+What artifacts cannot enforce, the verify layers must: a model can always write a plausible lie (fabricated evidence strings, vacuous SOURCE lines). The counter is structural redundancy, the reviewer re-executes cited commands and the critic attacks everything marked passing, so a lie has to survive two independent re-derivations, not one judgment. That is why the reviewer and critic exist for every cycle on every model.
+
+Each agent file carries a `model` field in its frontmatter: leads, reviewer, and critic on a strong model, workers on a mid-tier model, the digest on the cheapest. That tunes cost and speed, never which gates apply. If the harness honors per-agent model selection, that is the entire mechanism. If not, agents inherit the session's model and the discipline binds unchanged. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Agent call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
 
 ## Stop Hook
 
-The stop guard blocks the session from stopping until ALL criteria.json entries have `passes: true` AND non-null `evidence`. There is no timing escape. Unparseable or wrong-shape criteria.json also blocks (fail closed). The only override: `touch .company/CANCEL`. A criteria file untouched for 24 hours still blocks, but the block reason states its age and points at the cancel file, so a leftover run is surfaced and cancellable rather than silently waved through.
+The stop guard blocks the session from stopping until ALL criteria.json entries have `passes: true` AND non-null `evidence`. There is no timing escape. Unparseable or wrong-shape criteria.json also blocks (fail closed). The criterion id set is locked on first sight (`.company/criteria.lock`): deleting a hard criterion blocks instead of unlocking, and ids added later extend the lock. The gate is session-scoped through `.company/OWNER`, so only sessions that own the run are ever blocked.
+
+The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the block reasons deliberately never name it. You, the orchestrator, NEVER touch it to escape a block: a block means the work is not done, so you continue the loop. A criteria file untouched for 24 hours still blocks, with its age surfaced so the human can spot and cancel a leftover run. If the harness force-ends the session after its consecutive-block cap, the run fails VISIBLY (criteria.json still shows the failing entries). Never paper that over with a fake flip.
 
 ## Files
 
@@ -264,7 +271,7 @@ Auto-trigger: when a context-usage warning of **>= 50%** appears (harnesses that
 The restart prompt MUST be a single fenced block the user can copy verbatim, and MUST contain:
 
 1. **GOAL + mode** for the resumed session (autonomous, loop-until-done).
-2. **FIRST ACTION = trust-nothing re-derivation:** the very first instruction tells the resumed session to re-derive every claim below as a reproduced artifact (git rev-parse origin/main, gh pr view/checks, CI-log greps, live probes). The handoff is a hypothesis, not evidence.
+2. **FIRST ACTION = trust-nothing re-derivation AND ownership:** the prompt instructs the resumed session to append its own session id to `.company/OWNER` (`echo "$CLAUDE_CODE_SESSION_ID" >> .company/OWNER`) so the stop guard gates it, then the very first instruction tells the resumed session to re-derive every claim below as a reproduced artifact (git rev-parse origin/main, gh pr view/checks, CI-log greps, live probes). The handoff is a hypothesis, not evidence.
 3. **STATE, re-derive all:** merged work (PR# + SHA), in-flight work (PR# + branch + HEAD SHA + exact CI/merge state), pending tasks, each with enough detail to resume.
 4. **PENDING / NEXT tasks** verbatim from `.company/NEXT.md` (or a pointer to it).
 5. **One-way doors** that still WAIT for the user's explicit go.
