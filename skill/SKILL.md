@@ -132,7 +132,7 @@ If a lead sees a skill gap: it writes `HIRE: {role}, {why}` and you add the role
 
 ### Task merge and dedup (orchestrator)
 
-Collect every lead's contracts. Dedup by SURFACE, not by task string: list the files, pages, and endpoints each task touches. Two tasks touching the same surface get merged into one worker or serialized. One worker per surface per cycle. Write the merged list to `.company/cycles/cycle-{N}-tasks.md` and `.company/active-tasks.md`, one task per line.
+Collect every lead's contracts and run the mechanical shape gate: `node scripts/check-contracts.js .company/cycles/cycle-{N}-tasks.md` (in the installed skill: the scripts directory next to SKILL.md). A contract missing a field or carrying a vacuous VERIFY-WITH is returned to its lead, never patched silently. Then dedup by SURFACE, not by task string: list the files, pages, and endpoints each task touches. Two tasks touching the same surface get merged into one worker or serialized. One worker per surface per cycle. Write the merged list to `.company/cycles/cycle-{N}-tasks.md` and `.company/active-tasks.md`, one task per line.
 
 ### EXECUTE (orchestrator spawns all workers in parallel)
 
@@ -165,7 +165,7 @@ If a task is blocked or impossible, the worker reports `BLOCKED: reason + what w
 
 ### VERIFY
 
-Spawn `company-reviewer` with the criteria, the contracts, and the findings file paths. The reviewer RE-DERIVES ground truth: for every criterion it re-runs at least one cited verification command itself, opens the cited file at the cited line, or fetches the cited URL. A worker transcript is a hypothesis, not evidence.
+Before spawning the reviewer, run the findings shape gate: `node scripts/check-findings.js` on each findings file (a FINDING without a SOURCE is rejected mechanically, not at review). Spawn `company-reviewer` with the criteria, the contracts, and the findings file paths. The reviewer RE-DERIVES ground truth: for every criterion it re-runs at least one cited verification command itself, opens the cited file at the cited line, or fetches the cited URL. A worker transcript is a hypothesis, not evidence.
 
 - Reproduced the evidence this cycle? The reviewer sets `passes: true` in `.company/criteria.json` AND writes the evidence string into the `evidence` field (the command it re-ran plus a one-line result, or file path plus line). The stop hook rejects `passes: true` with null evidence, so an empty evidence field means the cycle cannot end.
 - Could not reproduce? It marks the criterion `NOT-REPRODUCED` in its verdict and keeps `passes: false`. Plausible-looking SOURCE lines that were not re-executed count for nothing.

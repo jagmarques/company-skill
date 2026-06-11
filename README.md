@@ -2,9 +2,9 @@
 
 [![npm](https://img.shields.io/npm/v/company-skill)](https://www.npmjs.com/package/company-skill) [![license](https://img.shields.io/npm/l/company-skill)](LICENSE) [![downloads](https://img.shields.io/npm/dw/company-skill)](https://www.npmjs.com/package/company-skill)
 
-**Define your team in markdown. Give it a goal. Walk away.**
+**Claude stops when it feels done. This makes it stop only when the work is actually done.**
 
-A Claude Code skill that runs your whole company. The orchestrator delegates, workers execute in parallel, and built-in reviewers re-verify the work before it counts as done. The loop keeps running until the goal is met.
+You define a team in one markdown file, hand it a goal, and walk away while it builds, reviews its own work, and keeps going until every success criterion passes with evidence a second agent reproduced. A stop hook reads criteria.json and physically blocks exit until then, and that guard is pinned by a 22-check test suite that runs green in CI (`node tests/stop-guard.test.js`).
 
 ```
 /company "Build the user auth system with OAuth2"
