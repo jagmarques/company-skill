@@ -114,6 +114,8 @@ OUT-OF-SCOPE: {what this task must not touch}
 
 The worker runs VERIFY-WITH itself before reporting, and the reviewer runs it again before anything passes. Two independent executions of the same command, in different contexts, are the spine of the loop.
 
+Three more rules bind every worker. Workers never spawn sub-agents (the platform refuses the call, and the contract says so up front). Long waits like CI runs go through background watchers that fail loud: a status command that errors is reported as an error, never as zero items pending. A worker whose contract needs a tool the harness deferred loads it through ToolSearch before declaring itself blocked.
+
 ## External fact verification
 
 Workers producing public output (GitHub comments, PRs, blog posts) verify every claim about external projects against the actual docs or source before publishing. No citing from memory. The reviewer blocks unverified external claims on its own.
@@ -134,6 +136,8 @@ The skill writes a `criteria.json` with machine-checkable success criteria:
 Everything starts failing. Only the VERIFY phase flips a criterion, and only by writing the reproduced evidence into the `evidence` field at the same time.
 
 A Stop Hook reads this file and blocks Claude from exiting until every criterion has `passes: true` and non-null evidence. There is no timing escape, and a malformed criteria.json (unparseable or wrong shape) blocks rather than failing open. The only override is `touch .company/CANCEL`. A criteria file untouched for 24 hours still blocks, but the block reason names its age and points at the cancel file, so a leftover run is surfaced for cancellation instead of silently passing.
+
+The guard's decision matrix is pinned by an 11-case test (`tests/stop-guard.test.js`) that executes the shipped hook against fixture state: malformed JSON blocks, passes-true with null evidence blocks, the cancel file allows exactly once, stale state still blocks with its age named. A regression to the fail-closed behavior turns CI red.
 
 ## Self-improving playbook
 
@@ -240,7 +244,7 @@ bin/install.js       npx installer (same coverage)
 
 ## Development
 
-`bash scripts/check.sh` parses every hook and installer, validates frontmatter, and greps for content that must never ship (private rule references, hardcoded IPs, em dashes, leaked operator brand names). CI runs the same script on every pull request.
+`bash scripts/check.sh` parses every hook and installer, validates frontmatter, greps for content that must never ship (private rule references, hardcoded IPs, em dashes, leaked operator brand names), and executes the stop-guard decision-matrix test. Run the test alone with `node tests/stop-guard.test.js`. CI runs the same script on every pull request.
 
 ## Examples
 
