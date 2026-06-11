@@ -137,7 +137,9 @@ Everything starts failing. Only the VERIFY phase flips a criterion, and only by 
 
 A Stop Hook reads this file and blocks Claude from exiting until every criterion has `passes: true` and non-null evidence. There is no timing escape, and a malformed criteria.json (unparseable or wrong shape) blocks rather than failing open. The only override is `touch .company/CANCEL`. A criteria file untouched for 24 hours still blocks, but the block reason names its age and points at the cancel file, so a leftover run is surfaced for cancellation instead of silently passing.
 
-The guard's decision matrix is pinned by an 11-case test (`tests/stop-guard.test.js`) that executes the shipped hook against fixture state: malformed JSON blocks, passes-true with null evidence blocks, the cancel file allows exactly once, stale state still blocks with its age named. A regression to the fail-closed behavior turns CI red.
+The gate is session-scoped: the orchestrator records its session id in `.company/OWNER` at goal parse, and only sessions listed there are ever blocked. An unrelated session that happens to share the working directory passes straight through, and the compaction hooks apply the same scoping so a foreign session is never redirected into someone else's restart. Legacy state without an OWNER file keeps the old block-everyone behavior, with a manual escape list at `~/.claude/hooks/company-guard-exempt.txt`.
+
+The guard's decision matrix is pinned by a 16-case test (`tests/stop-guard.test.js`) that executes the shipped hook against fixture state: malformed JSON blocks, passes-true with null evidence blocks, the cancel file allows exactly once, stale state still blocks with its age named. A regression to the fail-closed behavior turns CI red.
 
 ## Self-improving playbook
 

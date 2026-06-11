@@ -26,11 +26,43 @@ const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company
 const criteriaPath = path.join(companyDir, 'criteria.json');
 const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
+const ownerPath = path.join(companyDir, 'OWNER');
+
+// Session scoping. The gate resolves its state dir from the working
+// directory, so without scoping a DIFFERENT session that merely shares the
+// directory gets blocked by a run it never started. The orchestrator records
+// owning session ids in .company/OWNER (one per line) at goal parse and on
+// resume; the harness pipes the stopping session's id on stdin. A session
+// not listed in OWNER passes straight through. A missing or empty OWNER file
+// is legacy state and keeps the old behavior: every session is gated (fail
+// closed). Manual escape for a wrongly gated legacy session: list its id in
+// ~/.claude/hooks/company-guard-exempt.txt (outside .company, so a foreign
+// run's own state is never touched).
+let sessionId = null;
+try {
+  const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (input && typeof input.session_id === 'string') sessionId = input.session_id;
+} catch (e) {}
+if (sessionId) {
+  try {
+    const exempt = fs.readFileSync(path.join(
+      process.env.HOME || '', '.claude', 'hooks', 'company-guard-exempt.txt'), 'utf8');
+    if (exempt.split('\n').some(function (l) { return l.trim() === sessionId; })) process.exit(0);
+  } catch (e) {}
+  try {
+    const owners = fs.readFileSync(ownerPath, 'utf8')
+      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    if (owners.length > 0 && owners.indexOf(sessionId) === -1) process.exit(0);
+  } catch (e) {}
+}
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 function block(reason) {
-  console.log(JSON.stringify({ decision: 'block', reason: '[COMPANY] ' + reason }));
+  // The stopping session's id rides along so a wrongly gated session can be
+  // exempted with the exact id.
+  const tag = sessionId ? ' [session ' + sessionId + ']' : '';
+  console.log(JSON.stringify({ decision: 'block', reason: '[COMPANY] ' + reason + tag }));
   process.exit(0);
 }
 

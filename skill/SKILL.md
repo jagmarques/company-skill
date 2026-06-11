@@ -76,7 +76,8 @@ Otherwise:
 
 Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time.
 
-4. Read `.company/playbook.md` if it exists (accumulated knowledge from past sessions).
+4. Record run ownership: write this session's id to `.company/OWNER` (`echo "$CLAUDE_CODE_SESSION_ID" > .company/OWNER`; when RESUMING an existing run append with `>>` instead of overwriting). The stop guard and the compaction hooks act only on sessions listed there, so an unrelated session that happens to share the directory is never gated or redirected by your run.
+5. Read `.company/playbook.md` if it exists (accumulated knowledge from past sessions).
 
 ## Reporting discipline (applies to EVERY output, every role)
 
@@ -264,7 +265,7 @@ Auto-trigger: when a context-usage warning of **>= 50%** appears (harnesses that
 The restart prompt MUST be a single fenced block the user can copy verbatim, and MUST contain:
 
 1. **GOAL + mode** for the resumed session (autonomous, loop-until-done).
-2. **FIRST ACTION = trust-nothing re-derivation:** the very first instruction tells the resumed session to re-derive every claim below as a reproduced artifact (git rev-parse origin/main, gh pr view/checks, CI-log greps, live probes). The handoff is a hypothesis, not evidence.
+2. **FIRST ACTION = trust-nothing re-derivation AND ownership:** the prompt instructs the resumed session to append its own session id to `.company/OWNER` (`echo "$CLAUDE_CODE_SESSION_ID" >> .company/OWNER`) so the stop guard gates it, then the very first instruction tells the resumed session to re-derive every claim below as a reproduced artifact (git rev-parse origin/main, gh pr view/checks, CI-log greps, live probes). The handoff is a hypothesis, not evidence.
 3. **STATE, re-derive all:** merged work (PR# + SHA), in-flight work (PR# + branch + HEAD SHA + exact CI/merge state), pending tasks, each with enough detail to resume.
 4. **PENDING / NEXT tasks** verbatim from `.company/NEXT.md` (or a pointer to it).
 5. **One-way doors** that still WAIT for the user's explicit go.
