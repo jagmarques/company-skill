@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/company-skill)](https://www.npmjs.com/package/company-skill) [![license](https://img.shields.io/npm/l/company-skill)](LICENSE) [![downloads](https://img.shields.io/npm/dw/company-skill)](https://www.npmjs.com/package/company-skill)
 
-**Claude stops when it feels done. This makes it stop only when the work is actually done.**
+**Your agent stops when it feels done. This makes it stop only when the work is actually done.**
 
 You define a team in one markdown file, hand it a goal, and walk away while it builds, reviews its own work, and keeps going until every success criterion passes with evidence a second agent reproduced. A stop hook reads criteria.json and physically blocks exit until then, and that guard is pinned by a 22-check test suite that runs green in CI (`node tests/stop-guard.test.js`).
 
@@ -135,7 +135,7 @@ The skill writes a `criteria.json` with machine-checkable success criteria:
 
 Everything starts failing. Only the VERIFY phase flips a criterion, and only by writing the reproduced evidence into the `evidence` field at the same time.
 
-A Stop Hook reads this file and blocks Claude from exiting until every criterion has `passes: true` and non-null evidence. There is no timing escape, and a malformed criteria.json (unparseable or wrong shape) blocks rather than failing open. The only override is `touch .company/CANCEL`, and it is for the human operator: block reasons deliberately never name it, so a blocked model is not handed its own escape. The criterion id set locks on first sight (`.company/criteria.lock`), so deleting a hard criterion blocks instead of unlocking. A criteria file untouched for 24 hours still blocks, but the block reason names its age and points at the cancel file, so a leftover run is surfaced for cancellation instead of silently passing.
+A Stop Hook reads this file and blocks the session from exiting until every criterion has `passes: true` and non-null evidence. There is no timing escape, and a malformed criteria.json (unparseable or wrong shape) blocks rather than failing open. The only override is `touch .company/CANCEL`, and it is for the human operator: block reasons deliberately never name it, so a blocked model is not handed its own escape. The criterion id set locks on first sight (`.company/criteria.lock`), so deleting a hard criterion blocks instead of unlocking. A criteria file untouched for 24 hours still blocks, but the block reason names its age and points at the cancel file, so a leftover run is surfaced for cancellation instead of silently passing.
 
 The gate is session-scoped: the orchestrator records its session id in `.company/OWNER` at goal parse, and only sessions listed there are ever blocked. An unrelated session that happens to share the working directory passes straight through, and the compaction hooks apply the same scoping so a foreign session is never redirected into someone else's restart. Legacy state without an OWNER file keeps the old block-everyone behavior, with a manual escape list at `~/.claude/hooks/company-guard-exempt.txt`.
 
