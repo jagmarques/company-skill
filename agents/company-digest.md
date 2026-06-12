@@ -16,7 +16,7 @@ Your prompt names the finished cycle's findings files, its review file (`.compan
 3. All other findings reduced to a one-line retrieval pointer: the findings file path plus a grep-able anchor (the FINDING's opening words). The next THINK greps the pointer on demand instead of carrying a restatement.
 4. Open tasks, BLOCKED items, and ALSO-FOUND items carried forward verbatim.
 5. The review's feedback for the next cycle.
-6. Append this cycle's FAILED -> USE INSTEAD and INEFFICIENT -> FASTER lessons to `.company/playbook.md` now. Dedup gate: grep the playbook for the lesson's key tokens first; on a hit, update the existing line (append "seen again {date}") instead of appending a near-duplicate.
+6. Append this cycle's FAILED -> USE INSTEAD and INEFFICIENT -> FASTER lessons to `.company/playbook.md` now. Dedup gate: grep the playbook for the lesson's key tokens first. On a hit, update the existing line (append "seen again {date}") instead of appending a near-duplicate.
 7. Cost line: run `npx ccusage@latest session --id "$CLAUDE_CODE_SESSION_ID" --json` (if it fails for any reason, write `COST: unavailable` and continue), write `.company/cycles/cycle-{N}-cost.json` (totalCost, totalTokens), and put a one-line `COST:` delta in the briefing. Never paste the raw JSON anywhere.
 
 Never drop a SOURCE line when compressing an importance 4-5 finding, and never write a pointer whose anchor does not appear in the file it points to. A compressed claim without its source is unverifiable and worse than dropping the claim. Never editorialize and never add new claims.

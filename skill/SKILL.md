@@ -121,7 +121,7 @@ Print as plain text (NOT Bash):
 CYCLE {N} - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
-Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything. Also re-run ONE cheap READ-ONLY check from the previous cycle (the cheapest side-effect-free passing VERIFY-WITH, or `git status` plus one criterion's read probe): environment rot caught at cycle start costs one command; caught mid-cycle it costs a wave. Never re-run a VERIFY-WITH that has side effects (publish, deploy, write).
+Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything. Also re-run ONE cheap READ-ONLY check from the previous cycle (the cheapest side-effect-free passing VERIFY-WITH, or `git status` plus one criterion's read probe): environment rot caught at cycle start costs one command. Caught mid-cycle it costs a wave. Never re-run a VERIFY-WITH that has side effects (publish, deploy, write).
 
 ### THINK (leads analyze, they never spawn)
 
@@ -194,13 +194,13 @@ CYCLE {N} VERDICT: {DONE or NOT DONE}
 ALL criteria pass + critic accepts = EXIT.
 Otherwise = loop, re-spawning only the FAILING tasks with the review feedback in their contracts.
 
-**Stall detector:** the reviewer keeps an `attempts` count on each criterion's entry in criteria.json (increment on every cycle it stays failing; the stop guard ignores extra fields). At `attempts >= 2` with same-shape evidence, the next THINK MUST produce a structurally different decomposition for that criterion: new approach, new surfaces, or HIRE. Re-issuing a near-identical contract after two same-shape failures is a planning bug, not persistence.
+**Stall detector:** the reviewer keeps an `attempts` count on each criterion's entry in criteria.json (increment on every cycle it stays failing - the stop guard ignores extra fields). At `attempts >= 2` with same-shape evidence, the next THINK MUST produce a structurally different decomposition for that criterion: new approach, new surfaces, or HIRE. Re-issuing a near-identical contract after two same-shape failures is a planning bug, not persistence.
 
 ### COMPRESS (between cycles)
 
 Before the next THINK, spawn `company-digest` with the cycle's findings files, the cycle review, and the playbook tail. It writes `.company/cycles/cycle-{N+1}-briefing.md`: importance 4-5 findings kept in full, the rest compressed to one line each, open tasks and feedback carried forward. The next THINK reads that briefing instead of raw transcripts. Never paste raw worker logs into your own context.
 
-The digest also: (a) appends any FAILED -> USE INSTEAD or INEFFICIENT -> FASTER lesson discovered THIS cycle to `.company/playbook.md` immediately, dedup-gated (see After Done) - a session killed mid-run must not lose its lessons; (b) records cost: run `npx ccusage@latest session --id "$CLAUDE_CODE_SESSION_ID" --json` (best effort: on any failure write `COST: unavailable` and move on), write `.company/cycles/cycle-{N}-cost.json` with totalCost and totalTokens, and put one line in the next briefing by diffing the previous cycle's file: `COST: cycle +{delta} tokens (~{delta} USD), run {cumulative}`. Tokens are the reliable number; USD can read 0 or low for models the tool cannot price.
+The digest also: (a) appends any FAILED -> USE INSTEAD or INEFFICIENT -> FASTER lesson discovered THIS cycle to `.company/playbook.md` immediately, dedup-gated (see After Done) - a session killed mid-run must not lose its lessons. (b) It records cost: run `npx ccusage@latest session --id "$CLAUDE_CODE_SESSION_ID" --json` (best effort: on any failure write `COST: unavailable` and move on), write `.company/cycles/cycle-{N}-cost.json` with totalCost and totalTokens, and put one line in the next briefing by diffing the previous cycle's file: `COST: cycle +{delta} tokens (~{delta} USD), run {cumulative}`. Tokens are the reliable number. USD can read 0 or low for models the tool cannot price.
 
 Do not try to run `/compact` yourself. It is a user command, not a tool. Context pressure is handled by the PreCompact and SessionStart hooks plus Restart mode.
 
@@ -218,7 +218,7 @@ FIRE: {roles that produced nothing, marked [inactive] in COMPANY.md}
 TOP: {employees with best findings, for priority activation next time}
 ```
 
-Playbook updates are incremental deltas only: append, or single-entry merge. Before appending any lesson, grep the playbook for its key tokens; if a matching lesson exists, update that line in place ("seen again {date}, also applies to {X}") instead of appending a near-duplicate. NEVER regenerate or summarize the playbook wholesale - iterative full rewrites erode accumulated detail (context collapse, arxiv 2510.04618). A structure-only reorganization that preserves every entry verbatim is the one allowed exception.
+Playbook updates are incremental deltas only: append, or single-entry merge. Before appending any lesson, grep the playbook for its key tokens, and if a matching lesson exists update that line in place ("seen again {date}, also applies to {X}") instead of appending a near-duplicate. NEVER regenerate or summarize the playbook wholesale - iterative full rewrites erode accumulated detail (context collapse, arxiv 2510.04618). A structure-only reorganization that preserves every entry verbatim is the one allowed exception.
 
 Every WORKED, FAILED, and FIRE line cites the cycle artifact that proves it. The playbook is the ONLY self-improvement file. It accumulates across sessions. It is pasted into lead prompts before every THINK phase. One file, all lessons. Group entries under bracketed topic headings (## [debugging], ## [outreach]) once it grows, so leads can pull targeted history with a grep instead of the whole tail.
 
