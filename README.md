@@ -53,15 +53,16 @@ DONE-WHEN: one machine-checkable condition
 VERIFY-WITH: the exact command that proves DONE-WHEN
 OUT-OF-SCOPE: what this task must not touch
 DEPENDS-ON: task numbers that must finish first, or none
+MODEL: cheap, mid, or strong with the lead's justification, or omit for mid
 ```
 
-`scripts/check-contracts.js` rejects a contract missing a field, carrying a vacuous VERIFY-WITH, or declaring a missing, self-referencing, or cyclic dependency. Workers run VERIFY-WITH before reporting and the reviewer runs it again: two independent executions of the same command are the spine of the loop. `scripts/check-findings.js` rejects any FINDING without a SOURCE. Workers producing public output verify every external claim against the actual source first, and a correction gets one factual reply, never an argument.
+`scripts/check-contracts.js` rejects a contract missing a field, carrying a vacuous VERIFY-WITH, naming an invalid MODEL tier, or declaring a missing, self-referencing, or cyclic dependency. Workers run VERIFY-WITH before reporting and the reviewer runs it again: two independent executions of the same command are the spine of the loop. `scripts/check-findings.js` rejects any FINDING without a SOURCE. Workers producing public output verify every external claim against the actual source first, and a correction gets one factual reply, never an argument.
 
 ## Goal enforcement
 
 The skill writes `criteria.json` where every criterion starts failing, and only the VERIFY phase flips one, writing the reproduced evidence at the same time. A Stop Hook blocks the session from exiting until every criterion has `passes: true` and non-null evidence. Malformed state blocks rather than failing open. The criterion id set locks on first sight (`criteria.lock`), so deleting a hard criterion blocks instead of unlocking. The gate is session-scoped through `.company/OWNER`: only sessions that own the run are ever blocked, and the compaction hooks apply the same scoping. The only override is `touch .company/CANCEL`, reserved for the human operator, and block reasons deliberately never name it. A block reason opens with the goal's first line and carries the reviewer's note per failing criterion, so a blocked loop restarts from the diagnosis.
 
-All of that is pinned by the 24-check decision-matrix test (`node tests/stop-guard.test.js`) plus the 8-check contract-gate test, both run by CI on every pull request.
+All of that is pinned by the 24-check decision-matrix test (`node tests/stop-guard.test.js`) plus the 13-check contract-gate test, both run by CI on every pull request.
 
 ## Self-improving playbook
 
@@ -69,7 +70,13 @@ After each session the orchestrator records what worked, what failed and what to
 
 ## Roles and models
 
-Built-in roles always exist: the CEO orchestrator, the Internal Reviewer, the Devil's Advocate, and the Digest writer that compresses each cycle. Agent files carry per-role model tags (strong for leads and reviewers, mid-tier for workers, cheapest for the digest), and that tunes cost and speed only. The discipline binds through the artifacts and gates for whichever model runs each role.
+Built-in roles always exist: the CEO orchestrator, the Internal Reviewer, the Devil's Advocate, and the Digest writer that compresses each cycle. No role ever hardcodes a "best" model. The lead, reviewer, and critic agent files carry no model field at all, so they inherit whatever model the running session uses, today and after every future release. Workers pin the floating `sonnet` alias and the digest pins `haiku`, both tracking the newest model in their family, and CI fails if any agent file names a versioned model. Each delegation contract can carry a lead-justified `MODEL: cheap|mid|strong` tag that the orchestrator maps at spawn time, with mid as the default.
+
+Two overrides exist. Setting the env var `CLAUDE_CODE_SUBAGENT_MODEL` before launch forces every sub-agent to one model and beats agent frontmatter. Writing `FORCE_BEST` into `.company/MODEL_POLICY` (format in `MODEL_POLICY.template`) switches a running company to all-best at the next cycle, and `TIERED` switches it back. The cycle briefing records the session model and warns when it is the cheap tier, so a degraded run is visible instead of silent. All of this tunes cost and speed only. The discipline binds through the artifacts and gates for whichever model runs each role.
+
+## Cost discipline
+
+Cost measures compress prose, never evidence. Prompts and contracts are laid out stable-first so repeated spawns share a cacheable prefix. Workers slice tool output with grep, head, and tail instead of pasting raw logs, with one carve-out: VERIFY-WITH output and error lines are evidence and ship verbatim. The digest stores one-line retrieval pointers for low-importance findings instead of restating them, and the next cycle greps them on demand. Every size target is soft and floor-gated: nothing ever trims below the FINDING plus SOURCE evidence pair.
 
 ## Commands
 

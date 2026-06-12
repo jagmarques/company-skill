@@ -27,5 +27,10 @@ check('self dependency fails', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 1')
 check('cycle fails', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 2') + '\n' + GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 1'), 1);
 check('prose with incidental digit fails clearly', GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: see the v3 plan'), 1);
 check('comma list passes', GOOD + '\n' + GOOD + '\n' + GOOD.replace('DEPENDS-ON: none', 'DEPENDS-ON: 1, 2'), 0);
+check('absent MODEL passes (defaults mid)', GOOD, 0);
+check('MODEL tier with justification passes', GOOD + 'MODEL: strong, public-facing security text\n', 0);
+check('MODEL cheap passes', GOOD + 'MODEL: cheap\n', 0);
+check('MODEL with a model name fails', GOOD + 'MODEL: haiku\n', 1);
+check('MODEL empty fails', GOOD + 'MODEL: \n', 1);
 if (failures) { console.log('CHECK-CONTRACTS TESTS FAILED: ' + failures); process.exit(1); }
 console.log('ALL CHECK-CONTRACTS TESTS PASSED (' + n + ' checks)');

@@ -37,14 +37,41 @@ else
   note_fail "skill/SKILL.md frontmatter missing or name field absent"
 fi
 
-# 4. Every agent file has frontmatter with name and model fields
+# 4. Agent frontmatter follows the model policy. Every agent file has
+#    frontmatter with a name field. Strong roles (lead, reviewer, critic)
+#    carry NO model field because omission inherits the session model.
+#    Worker pins the sonnet alias, digest pins the haiku alias, and no
+#    agent or skill file may name a versioned model.
 for f in agents/*.md; do
-  if [ "$(head -1 "$f")" = "---" ] && grep -q '^name: ' "$f" && grep -q '^model: ' "$f"; then
+  if [ "$(head -1 "$f")" = "---" ] && grep -q '^name: ' "$f"; then
     echo "ok: frontmatter $f"
   else
-    note_fail "$f missing frontmatter, name, or model field"
+    note_fail "$f missing frontmatter or name field"
   fi
 done
+for f in agents/company-lead.md agents/company-reviewer.md agents/company-critic.md; do
+  if grep -q '^model:' "$f"; then
+    note_fail "$f carries a model field (strong roles inherit by omission)"
+  else
+    echo "ok: no model field in $f"
+  fi
+done
+grep -q '^model: sonnet$' agents/company-worker.md \
+  && echo "ok: worker pins sonnet alias" \
+  || note_fail "agents/company-worker.md must pin model: sonnet"
+grep -q '^model: haiku$' agents/company-digest.md \
+  && echo "ok: digest pins haiku alias" \
+  || note_fail "agents/company-digest.md must pin model: haiku"
+if grep -hE '^model:' agents/*.md | grep -vE '^model: (sonnet|haiku)$'; then
+  note_fail "agent model field outside the allowed aliases sonnet/haiku"
+else
+  echo "ok: agent model fields stay on allowed aliases"
+fi
+if grep -rinE 'claude-[a-z]+-[0-9]' agents/ skill/; then
+  note_fail "versioned model name found in agents or skill"
+else
+  echo "ok: no versioned model names"
+fi
 
 # 5. package.json parses
 if node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))" 2>/dev/null; then

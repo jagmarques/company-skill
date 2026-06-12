@@ -10,11 +10,13 @@
 
   TIPS:
   - First role in each department (or marked "Lead:") becomes the department lead
-  - Add [opus], [sonnet], or [haiku] to request a model for a role. The
+  - Add [sonnet] or [haiku] to request a model family for a role. The
     orchestrator states the override when spawning if the harness supports
     per-agent models, otherwise the tag is ignored
-  - Defaults come from the agent files: leads and reviewers on a strong
-    model, workers on a mid tier, the digest on the cheapest
+  - Defaults: leads, the reviewer, and the critic inherit the session model
+    (their agent files carry no model field), workers run the sonnet alias,
+    the digest runs haiku. Tune per task with the contract MODEL: tag or
+    force everything best via .company/MODEL_POLICY (see MODEL_POLICY.template)
   - Add as many departments and roles as you want
 -->
 
