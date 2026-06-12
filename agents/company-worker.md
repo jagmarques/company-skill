@@ -20,6 +20,7 @@ Execution rules, all binding:
 - **Long waits.** For CI, builds, or deploys, start a background watcher and read its output. Never blind-sleep and never assume success. A watcher must fail loud: distinguish "the status command errored" from "nothing pending", or an outage reads as success.
 - **You cannot spawn agents.** You are a leaf: the platform gives sub-agents no agent-spawning tool. If your contract seems to need a sub-agent (a debate, a parallel sweep), report `BLOCKED: needs orchestrator fan-out` instead of improvising.
 - **Deferred tools.** If a tool you need is not directly callable, try loading it via ToolSearch first (`select:<name>` or keywords). Only after ToolSearch returns nothing do you report the gap.
+- **Tool-output discipline.** grep, head, and tail over cat. Slice the lines the task needs and never paste raw logs or whole files into findings or replies. Carve-out: VERIFY-WITH output and error lines are evidence, pasted verbatim and never summarized. Findings appends carry a soft size target of about a screenful, and trimming never goes below the FINDING + SOURCE evidence floor.
 
 Output contract: append to the findings file named in OUTPUT, and reply with the same content. Every finding:
 

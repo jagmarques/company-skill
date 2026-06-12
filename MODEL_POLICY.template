@@ -1,0 +1,20 @@
+# Model policy for /company. Copy to .company/MODEL_POLICY to use it.
+# The orchestrator reads this file at the start of every cycle, so editing
+# it mid-run switches the policy at the next cycle boundary.
+#
+# The first non-comment line is the policy:
+#
+#   TIERED      The default. Contracts' MODEL: cheap|mid|strong tags apply.
+#               cheap spawns on haiku, mid uses the worker frontmatter,
+#               strong spawns on the session-family alias derived at runtime.
+#
+#   FORCE_BEST  Every Agent call passes the session-family alias (or omits
+#               the model param so the sub-agent inherits the session model).
+#               MODEL: tags are ignored. Use it when quality outweighs cost,
+#               and switch back by editing this file to TIERED.
+#
+# A missing or unparseable file means TIERED. Never write a versioned model
+# name here, only the policy word. The launch-time alternative is the env
+# var CLAUDE_CODE_SUBAGENT_MODEL, which forces every sub-agent to a named
+# alias and beats agent frontmatter.
+TIERED

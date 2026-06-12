@@ -106,9 +106,12 @@ DONE-WHEN: {one machine-checkable condition}
 VERIFY-WITH: {the exact command whose output proves DONE-WHEN}
 OUT-OF-SCOPE: {what this task must not touch}
 DEPENDS-ON: {task numbers this task needs finished first, or "none"}
+MODEL: {cheap | mid | strong, with the lead's one-line justification, or omit for mid}
 ```
 
 No command, no task. If nobody can write a VERIFY-WITH command (or an equally concrete check, like a named URL to screenshot), the task is not ready to assign. Vague delegations are rejected structurally, not patched at review time.
+
+MODEL is optional and defaults to mid. When present it carries the lead's judgment about the task's difficulty, and the orchestrator maps it to a model at spawn time (see Model assignment). Lay contracts out stable-first: the fixed template fields and pasted boilerplate at the top, the volatile values (paths, SHAs, cycle feedback) at the bottom, so repeated spawns share a cacheable prompt prefix.
 
 ## Loop
 
@@ -118,11 +121,11 @@ Print as plain text (NOT Bash):
 CYCLE {N} - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
-Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything.
+Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything.
 
 ### THINK (leads analyze, they never spawn)
 
-Write `.company/cycles/cycle-{N}-briefing.md` first (exact name, the PreCompact hook reads it): the goal, criteria status, and the previous cycle's feedback. If the digest already wrote this file between cycles, verify it reflects the current criteria and extend it instead of overwriting.
+Write `.company/cycles/cycle-{N}-briefing.md` first (exact name, the PreCompact hook reads it): the goal, criteria status, the previous cycle's feedback, and the session model this cycle runs on. When the session family is the cheap tier, open the briefing (and your chat reply) with a warning that the verify layers are running on a weak model, so a human can judge the evidence bar. If the digest already wrote this file between cycles, verify it reflects the current criteria and extend it instead of overwriting.
 
 As CEO, read the GOAL and COMPANY.md. Decide which departments and employees are RELEVANT to this specific goal. Only activate relevant ones. A mobile app goal does not need a Topologist. Write `.company/active-roster.md`: each activated employee with a one-line reason.
 
@@ -138,7 +141,7 @@ Collect every lead's contracts and run the mechanical shape gate: `node scripts/
 
 ### EXECUTE (orchestrator spawns workers in dependency waves)
 
-Spawn one `company-worker` Agent call per contract. Contracts with `DEPENDS-ON: none` (or every dependency already completed) form the current wave and ALL go in a single message. Dependents wait for their wave. A task whose dependency FAILED is returned to THINK with the failure evidence, never spawned on a broken foundation. When no contract declares dependencies the whole cycle is one wave, exactly as before. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
+Spawn one `company-worker` Agent call per contract, mapping the contract's `MODEL:` tag to a spawn-time model per Model assignment (no tag means mid). Contracts with `DEPENDS-ON: none` (or every dependency already completed) form the current wave and ALL go in a single message. Dependents wait for their wave. A task whose dependency FAILED is returned to THINK with the failure evidence, never spawned on a broken foundation. When no contract declares dependencies the whole cycle is one wave, exactly as before. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
 
 If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. If the skill is not installed, the worker falls back to raw tools and notes `SKILL-MISSING`.
 
@@ -248,7 +251,27 @@ The architecture is MODEL-AGNOSTIC by design. The discipline (single-orchestrato
 
 What artifacts cannot enforce, the verify layers must: a model can always write a plausible lie (fabricated evidence strings, vacuous SOURCE lines). The counter is structural redundancy, the reviewer re-executes cited commands and the critic attacks everything marked passing, so a lie has to survive two independent re-derivations, not one judgment. That is why the reviewer and critic exist for every cycle on every model.
 
-Each agent file carries a `model` field in its frontmatter: leads, reviewer, and critic on a strong model, workers on a mid-tier model, the digest on the cheapest. That tunes cost and speed, never which gates apply. If the harness honors per-agent model selection, that is the entire mechanism. If not, agents inherit the session's model and the discipline binds unchanged. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Agent call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
+Tiering works in three layers, none of which ever hardcodes a "best" model name:
+
+1. **Strong roles inherit the session.** `company-lead`, `company-reviewer`, and `company-critic` carry NO `model` field in their frontmatter. Omitting the field makes the agent inherit the session model, so the verify layers always run on whatever the running session decided is best, today and after every future model release. Never write `model: inherit` in frontmatter (it gains nothing over omission and risks literal-string breakage on harnesses that treat it as a model id) and never pass the literal string "inherit" as an Agent model param (the harness rejects it with an InputValidationError).
+2. **Cheap tiers float on aliases.** `company-worker` carries `model: sonnet` and `company-digest` carries `model: haiku`. These are family aliases, not versioned names, so they track the newest model in each family. No agent file may name a versioned model, and CI greps for that.
+3. **Contracts carry the lead's judgment.** The optional `MODEL: cheap|mid|strong` tag (default mid) maps at spawn time: `cheap` passes `haiku` as the Agent model param, `mid` passes no param so the worker's frontmatter applies, `strong` passes the session-family alias which the orchestrator derives at runtime from the model it is itself running on. Never the literal "inherit" as a param. The lead is the complexity scorer: the tag plus its one-line justification replaces any scoring machinery.
+
+Two founder overrides exist, one per timescale:
+
+- **Launch-time:** the env var `CLAUDE_CODE_SUBAGENT_MODEL` forces every sub-agent to the named model. It beats agent frontmatter and accepts family aliases, so exporting it before starting the session pins the entire run.
+- **Mid-session:** the file `.company/MODEL_POLICY`, read at the start of every cycle. The first non-comment line is the policy: `TIERED` (the default, MODEL: tags apply as above) or `FORCE_BEST` (every Agent call passes the session-family alias or omits the model param entirely so the sub-agent inherits, and MODEL: tags are ignored). Lines starting with `#` are comments. A missing or unparseable file means TIERED. The file format is documented in `MODEL_POLICY.template` at the repo root.
+
+Degradation stays visible: the cycle briefing records the session model, and when the session family is the cheap tier the orchestrator warns in its opening paragraph that the verify layers run on a weak model. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Agent call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
+
+## Token cost discipline
+
+Cost discipline compresses prose, never evidence. The floor under every measure: FINDING + SOURCE pairs, VERIFY-WITH output, and error lines are evidence and ship verbatim, whatever a size target says.
+
+- **Cache-aware prompt layout.** Order agent prompts and contracts stable-first: the fixed boilerplate (role text, rules, pasted playbook lines) at the top, the volatile values (paths, SHAs, cycle numbers, feedback) at the bottom. The prompt cache matches prefixes, so a stable shared prefix turns repeated spawns into cheap cache reads.
+- **Worker tool-output discipline.** grep, head, and tail over cat. Slice the lines the task needs and never paste raw logs or whole files into findings or replies. Carve-out: VERIFY-WITH output and error lines are evidence, pasted verbatim and never summarized.
+- **Digest retrieval pointers.** Below importance 4 the digest stores a one-line pointer (findings file path plus a grep-able anchor) instead of restating the finding, and the next THINK greps it on demand. Importance 4-5 findings stay in full with their SOURCE lines intact.
+- **Floor-gated trimming.** Findings appends and lead briefings carry soft size targets (aim for about a screenful). Trim prose to hit them, never below the evidence floor above.
 
 ## Stop Hook
 
@@ -262,6 +285,7 @@ The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the 
 .company/
   GOAL.md                      ← the goal verbatim (hooks + status read it)
   criteria.json                ← machine-checkable goal state
+  MODEL_POLICY                 ← optional, TIERED or FORCE_BEST (see Model assignment)
   playbook.md                  ← accumulated lessons (THE self-improvement file)
   active-roster.md             ← employees activated for this goal
   active-tasks.md              ← deduplicated task list

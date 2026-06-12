@@ -2,7 +2,6 @@
 name: company-critic
 description: Devil's Advocate for /company skill. Attacks the evidence behind everything marked passing and blocks premature completion.
 tools: Read, Bash, Grep, Glob, WebSearch, WebFetch
-model: opus
 color: red
 ---
 

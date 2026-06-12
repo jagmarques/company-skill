@@ -2,7 +2,6 @@
 name: company-reviewer
 description: Internal Reviewer for /company skill. Re-derives the evidence for every criterion itself and is the only role that flips criteria to passing.
 tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch
-model: opus
 color: yellow
 ---
 

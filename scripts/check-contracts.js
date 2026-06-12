@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Gate for delegation contracts: every TASK block must carry all seven fields
-// and a non-empty VERIFY-WITH. Exit 1 lists each defective contract.
+// Gate for delegation contracts: every TASK block must carry all required
+// fields and a non-empty VERIFY-WITH. MODEL is optional (defaults to mid)
+// but must be a valid tier when present. Exit 1 lists each defective contract.
 // Run: node scripts/check-contracts.js .company/cycles/cycle-N-tasks.md
 const fs = require('fs');
 const file = process.argv[2];
@@ -46,6 +47,12 @@ blocks.forEach((b, i) => {
   const errs = [];
   if (missing.length) errs.push('missing ' + missing.join(' '));
   if (b.includes('VERIFY-WITH:') && vw.length < 8) errs.push('VERIFY-WITH is empty or vacuous');
+  // MODEL is optional (absent means mid). When present the tier must be
+  // cheap, mid, or strong, optionally followed by the lead's justification.
+  const mm = b.match(/^MODEL:\s*(.*)$/m);
+  if (mm && !/^(cheap|mid|strong)\b/i.test(mm[1].trim())) {
+    errs.push('MODEL must start with cheap, mid, or strong, got: ' + mm[1].trim().slice(0, 40));
+  }
   if (errs.length) { bad += 1; console.error('contract ' + (i + 1) + ': ' + errs.join(', ')); }
 });
 const depErrs = checkDeps(blocks);
