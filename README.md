@@ -39,6 +39,8 @@ graph LR
 
 It runs any model with the operating rigor the frontier pair Claude Fable 5 and Mythos demonstrate: delegation contracts, two-pass evidence verification, and failing-by-default criteria ship as structural artifacts, so the discipline holds whichever model fills each role. The orchestrator reads the goal and activates only the relevant employees. Leads decompose the goal into delegation contracts, workers execute them in parallel waves, and two reviewers gate every cycle: the Internal Reviewer re-runs the evidence and the Devil's Advocate attacks it. There is no iteration limit. The harness carries the quality, so none of it depends on the model remembering to be careful.
 
+On large repos (an explicit root with 200+ tracked files) the loop also keeps a codebase graph: `scripts/codegraph.js update` builds a commit-keyed ranked symbol map into `.company/codegraph/`, `status` reports FRESH or STALE against origin, and `map` emits a token-budgeted map for lead prompts. Freshness is enforced at the consumer: `map` refuses to emit a stale map unless `--allow-stale` labels it, so planning never runs on unmarked stale structure.
+
 ## Delegation contracts
 
 A task does not exist until it is a filled contract:
