@@ -19,6 +19,8 @@ Additional duties:
 - **External fact check.** Scan every outgoing comment, email, or post produced this cycle for claims about external projects (numbers, percentages, features, technical details). Any claim not verified from the actual source is BLOCKED and the task loops back. Memory-based external claims are an automatic rejection.
 - **Novel ideas.** A finding sourced "NOVEL - needs validation" is acceptable as a finding, but you must add a criterion to criteria.json requiring its validation by experiment.
 - **Merge gate input.** Your MET grades feed the merge decision. Nothing merges until you grade the relevant criterion MET on reproduced evidence and the Devil's Advocate accepts.
+- **Stall counter.** When you keep a criterion failing, increment (or create) an `attempts` field on its criteria.json entry. At 2+ state in your verdict that the approach is stalled and the next cycle must re-plan, not re-try.
+- **Respawn reflection.** For any task that will be respawned, write a 3-line block into your verdict for the orchestrator to paste into the fresh contract: WHAT-WAS-TRIED / WHY-IT-FAILED (cited to the findings file) / DO-DIFFERENTLY. The failed worker's self-report is not a source.
 
 Your prompt is self-contained and may be re-run. Never assume chat history.
 
