@@ -68,6 +68,15 @@ const HIGH_SIGNAL = [
   'ghp_[A-Za-z0-9]{36,}',
   'AKIA[0-9A-Z]{16}',
   'xox[bp]-[A-Za-z0-9-]{24,}',
+  // Coolify root tokens: numeric-id | 40+ alphanum (e.g. 8|u5nhEBunqJ4Q...)
+  '\\d+\\|[A-Za-z0-9]{40,}',
+  // Cloudflare API tokens (cfut_ prefix, 32+ alphanum)
+  'cfut_[A-Za-z0-9]{32,}',
+  // Hetzner Cloud API tokens have no stable prefix - omitted to avoid false-positives
+  // against SHA256 hashes and base64 content. Use gitleaks for Hetzner coverage.
+  // JWT bearer tokens (three dot-separated base64url segments, first segment eyJ)
+  // Header segment can be short (e.g. 20 chars total), payload and sig must be longer.
+  'eyJ[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}',
 ];
 
 const grepPattern = HIGH_SIGNAL.join('|');

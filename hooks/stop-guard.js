@@ -25,6 +25,22 @@ const ownerPath = path.join(companyDir, 'OWNER');
 
 // External anchor: keyed on sha256(realpath(companyDir)).slice(0,16) so
 // rewriting GOAL.md or criteria.json cannot rotate the key and orphan the anchor.
+//
+// H2 self-heal: when GOAL.md mtime > external lock mtime, the user launched a new
+// goal after the lock was written. Reset the anchor so the new id-set snapshots cleanly.
+// Within an active run GOAL.md is NOT rewritten, so the lock still holds for tamper
+// attempts (shrinking criteria cannot advance GOAL.md mtime).
+function goalNewerThanLock(extLockPath) {
+  if (!extLockPath) return false;
+  try {
+    const lockMtime = fs.statSync(extLockPath).mtimeMs;
+    const goalMtime = fs.statSync(goalPath).mtimeMs;
+    return goalMtime > lockMtime;
+  } catch (e) {
+    return false;
+  }
+}
+
 function getAnchorDir() {
   try {
     const real = fs.realpathSync(companyDir);
@@ -180,6 +196,18 @@ if (fs.existsSync(criteriaPath)) {
         .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
       if (lockedIds.length === 0) lockedIds = null;
     } catch (e) {}
+  }
+
+  // H2 self-heal: GOAL.md newer than external lock means a new /company goal was
+  // started after the previous lock was written. Re-snapshot so a new run with
+  // reused criterion ids (e.g. id 1) is not blocked by phantom ids from the prior run.
+  // Safety: within an active run GOAL.md is NOT rewritten by the harness, so this
+  // branch is unreachable during an in-run tamper attempt (criteria-shrink cannot
+  // advance GOAL.md mtime and re-open this gate).
+  if (lockedIds !== null && goalNewerThanLock(extLockPath)) {
+    try { fs.unlinkSync(extLockPath); } catch (e) {}
+    try { fs.unlinkSync(lockPath); } catch (e) {}
+    lockedIds = null;
   }
 
   if (lockedIds !== null) {

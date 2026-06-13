@@ -372,6 +372,58 @@ function writeCriteria(dir, value) {
     d, 'allow', null, { env: { HOME: home } });
 }
 
+// 30. H2 tamper hole stays closed: within an active run, shrinking criteria (dropping
+// a hard id) still BLOCKS even after the self-heal fix. GOAL.md is NOT rewritten
+// during a run, so its mtime stays older than the lock and the self-heal path is
+// NOT taken. The anchor still holds the original id-set.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: false, evidence: null },
+    { id: 2, description: 'hard', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'active run goal');
+  runHook(d, { env: { HOME: home } }); // first sight: external lock written with ids 1,2
+  // GOAL.md is NOT rewritten (mtime unchanged, as it would be within an active run).
+  // Only criteria.json shrinks (drop id 2) - tamper attempt.
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: true, evidence: 'real' }] });
+  check('H2 tamper: in-run criteria-shrink still blocks (lock holds)', d, 'block',
+    'locked criterion', { env: { HOME: home } });
+}
+
+// 31. H2 self-heal: a NEW goal (GOAL.md mtime advanced past the lock mtime) with a
+// reused id-set should NOT be blocked by the prior run's anchor. The gate re-snapshots
+// the new id-set and allows when all criteria pass.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  // First run: write GOAL.md and criteria with ids 1,2 then snapshot the lock.
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'old goal');
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'old-a', passes: false, evidence: null },
+    { id: 2, description: 'old-b', passes: false, evidence: null }] });
+  runHook(d, { env: { HOME: home } }); // lock snaps ids 1,2
+  // Advance GOAL.md mtime by 100ms past the lock file (simulates /company rewriting it
+  // for a new goal, which always happens before criteria.json is written).
+  const lockStat = (() => {
+    const crypto = require('crypto');
+    const real = fs.realpathSync(d);
+    const key = crypto.createHash('sha256').update(real).digest('hex').slice(0, 16);
+    return path.join(home, '.claude', 'company-guard-state', key, 'lock');
+  })();
+  const lockMtime = fs.statSync(lockStat).mtimeMs;
+  const newMtime = (lockMtime + 200) / 1000;
+  fs.utimesSync(path.join(d, 'GOAL.md'), newMtime, newMtime);
+  // New goal criteria: only id 1 (would have blocked before the self-heal fix).
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'new-a', passes: true, evidence: 'proof' }] });
+  check('H2 self-heal: new goal (GOAL.md mtime > lock) is not blocked by prior anchor',
+    d, 'allow', null, { env: { HOME: home } });
+}
+
 if (failures > 0) {
   console.log('STOP-GUARD TESTS FAILED: ' + failures);
   process.exit(1);
