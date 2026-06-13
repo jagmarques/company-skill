@@ -393,35 +393,77 @@ function writeCriteria(dir, value) {
     'locked criterion', { env: { HOME: home } });
 }
 
-// 31. H2 self-heal: a NEW goal (GOAL.md mtime advanced past the lock mtime) with a
-// reused id-set should NOT be blocked by the prior run's anchor. The gate re-snapshots
-// the new id-set and allows when all criteria pass.
+// 31. H2 self-heal: a NEW goal (GOAL.md CONTENT changed) with a reused id-set must
+// not be blocked by the prior anchor. Self-heal keys on content hash, not mtime.
 {
   const d = freshDir();
   const home = freshDir();
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   // First run: write GOAL.md and criteria with ids 1,2 then snapshot the lock.
-  fs.writeFileSync(path.join(d, 'GOAL.md'), 'old goal');
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'old goal content for first run');
   writeCriteria(d, { criteria: [
     { id: 1, description: 'old-a', passes: false, evidence: null },
     { id: 2, description: 'old-b', passes: false, evidence: null }] });
-  runHook(d, { env: { HOME: home } }); // lock snaps ids 1,2
-  // Advance GOAL.md mtime by 100ms past the lock file (simulates /company rewriting it
-  // for a new goal, which always happens before criteria.json is written).
-  const lockStat = (() => {
-    const crypto = require('crypto');
-    const real = fs.realpathSync(d);
-    const key = crypto.createHash('sha256').update(real).digest('hex').slice(0, 16);
-    return path.join(home, '.claude', 'company-guard-state', key, 'lock');
-  })();
-  const lockMtime = fs.statSync(lockStat).mtimeMs;
-  const newMtime = (lockMtime + 200) / 1000;
-  fs.utimesSync(path.join(d, 'GOAL.md'), newMtime, newMtime);
-  // New goal criteria: only id 1 (would have blocked before the self-heal fix).
+  runHook(d, { env: { HOME: home } }); // lock snaps ids 1,2 + goal-hash stored
+  // Write genuinely new GOAL.md content (simulates a new /company goal being launched).
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'new goal content - different from first run');
+  // New goal criteria: only id 1 (subsets the old locked set, but goal is genuinely new).
   writeCriteria(d, { criteria: [
     { id: 1, description: 'new-a', passes: true, evidence: 'proof' }] });
-  check('H2 self-heal: new goal (GOAL.md mtime > lock) is not blocked by prior anchor',
+  check('H2 self-heal: new goal (GOAL content changed) not blocked by prior anchor',
     d, 'allow', null, { env: { HOME: home } });
+}
+
+// 32. H2-4 regression: bare touch (mtime advances, content UNCHANGED) + drop failing id
+// must BLOCK. This is the exact attack the critic reproduced. Content hash is unchanged,
+// so the self-heal must NOT fire and the anchor must hold the original id-set.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  const goalContent = 'active run goal - content stays the same throughout';
+  fs.writeFileSync(path.join(d, 'GOAL.md'), goalContent);
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: false, evidence: null },
+    { id: 2, description: 'hard', passes: false, evidence: null }] });
+  runHook(d, { env: { HOME: home } }); // lock snaps ids 1,2 + goal-hash stored
+  // Simulate attack: advance GOAL.md mtime past lock (bare touch) without changing content.
+  const crypto2 = require('crypto');
+  const realD = fs.realpathSync(d);
+  const key2 = crypto2.createHash('sha256').update(realD).digest('hex').slice(0, 16);
+  const extLock = path.join(home, '.claude', 'company-guard-state', key2, 'lock');
+  const lockMtimeMs = fs.statSync(extLock).mtimeMs;
+  const futureTs = (lockMtimeMs + 5000) / 1000; // 5 seconds into future
+  fs.utimesSync(path.join(d, 'GOAL.md'), futureTs, futureTs); // touch - mtime advanced
+  // Also drop failing id 2 (the attacker's goal: get out of the gate with id 2 gone).
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: true, evidence: 'real' }] });
+  check('H2-4 regression: touch GOAL.md + drop failing id still blocks (content unchanged)',
+    d, 'block', 'locked criterion', { env: { HOME: home } });
+}
+
+// 33. Backward compat: old anchor with no stored goal-hash does NOT heal the id-set.
+// Adopts current hash going forward without resetting the lock (fail-safe upgrade path).
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'existing run goal');
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'a', passes: false, evidence: null },
+    { id: 2, description: 'b', passes: false, evidence: null }] });
+  runHook(d, { env: { HOME: home } }); // lock snaps ids 1,2 + goal-hash stored
+  // Simulate old anchor: delete goal-hash file only (lock stays).
+  const crypto3 = require('crypto');
+  const realD3 = fs.realpathSync(d);
+  const key3 = crypto3.createHash('sha256').update(realD3).digest('hex').slice(0, 16);
+  const hashPath = path.join(home, '.claude', 'company-guard-state', key3, 'goal-hash');
+  try { fs.unlinkSync(hashPath); } catch (e) {}
+  // Shrink criteria (drop id 2) - must still BLOCK (no stored hash = no heal allowed).
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'a', passes: true, evidence: 'real' }] });
+  check('backward compat: absent goal-hash does not unlock the gate on shrink',
+    d, 'block', 'locked criterion', { env: { HOME: home } });
 }
 
 if (failures > 0) {
