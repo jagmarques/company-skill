@@ -876,11 +876,15 @@ function refreshRegistryLastSeen() {
   writeRegistryEntry(SESSION_ID, ownEntry);
 }
 
-// Remove own entry on clean exit or signal
+// Remove own entry only if the stored pid matches this process (prune-own-pid-only).
+// A second server for the same session id must not wipe a live entry it does not own.
 function pruneOwnRegistryEntry() {
   if (!SESSION_ID) return;
   try {
     const reg = readRegistry();
+    const stored = reg.sessions[SESSION_ID];
+    // Only remove if the entry still belongs to this pid
+    if (!stored || stored.pid !== process.pid) return;
     delete reg.sessions[SESSION_ID];
     fs.writeFileSync(REGISTRY_FILE, JSON.stringify(reg, null, 2));
   } catch (_) { /* ignore */ }
@@ -888,6 +892,18 @@ function pruneOwnRegistryEntry() {
 process.on('exit', pruneOwnRegistryEntry);
 process.on('SIGTERM', () => { pruneOwnRegistryEntry(); process.exit(0); });
 process.on('SIGINT',  () => { pruneOwnRegistryEntry(); process.exit(0); });
+
+// Heartbeat: every 15s re-assert own entry so a transient prune self-heals.
+// unref() so this interval does not keep the process alive on its own.
+if (SESSION_ID && ownEntry) {
+  const _heartbeat = setInterval(() => {
+    if (!SESSION_ID || !ownEntry) return;
+    ownEntry.lastSeen = new Date().toISOString();
+    // Use the atomic write helper; re-adds the full entry if it went missing
+    writeRegistryEntry(SESSION_ID, ownEntry);
+  }, 15000);
+  _heartbeat.unref();
+}
 
 // ---------- /api/state ----------
 function buildState() {
