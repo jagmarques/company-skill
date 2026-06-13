@@ -277,7 +277,7 @@ Write `.company/cycles/cycle-{N}-briefing.md` first (exact name, the PreCompact 
 
 As CEO, read the GOAL and COMPANY.md. Decide which departments and employees are RELEVANT to this specific goal. Only activate relevant ones. A mobile app goal does not need a Topologist. Write `.company/active-roster.md`: each activated employee with a one-line reason.
 
-**Effort scaling:** size the spawn to the goal before spawning anything. Trivial goal (single surface, known fix): no leads, 1-2 contracts written by you. Medium (one department's scope, one wave): 1-2 leads. Complex (multi-surface or unknown root cause): full parallel leads + dependency waves. State the chosen tier in the cycle briefing so the critic can challenge over- or under-spawn. Tie effort to ROI: spend heavier spawn on the highest-value decomposition of the goal, not the most obvious. When two decompositions are both sound, pick the one that unblocks more downstream work or closes the riskiest criterion first.
+**Effort scaling:** size the spawn to the goal before spawning anything. Trivial goal (single surface, known fix): no leads, 1-2 contracts written by you. Medium (one department's scope, one wave): 1-2 leads. Complex (multi-surface or unknown root cause): full parallel leads + dependency waves. State the chosen tier in the cycle briefing so the critic can challenge over- or under-spawn. Tie effort to ROI and stakes: spend heavier spawn on the highest-value decomposition of the goal, not the most obvious. When two decompositions are both sound, pick the one that unblocks more downstream work or closes the riskiest criterion first.
 
 Spawn ALL relevant department leads in parallel: one `company-lead` Agent call per department, every Agent call in a SINGLE message. Sequential lead spawns are a bug. If an Agent call fails transiently, retry once, then record the lead as unavailable and fold its planning into your own.
 
@@ -354,6 +354,15 @@ Before spawning the reviewer, run the findings shape gate: `node <skill-scripts-
 - **External fact check:** scan every outgoing comment, email, or post for claims about external projects. Any claim not verified from the actual source is BLOCKED and the task loops back. Memory-based claims about external projects are an automatic rejection.
 
 Then spawn `company-critic` (the Devil's Advocate) on everything marked passing. Its probes: was the evidence reproduced or just transcribed? Does the test actually exercise the change? What input breaks it? What surface was never checked? Could this be simpler? Would a real user understand it? For every external claim: verified from their repo or docs, or guessed? A single unclosed gap means NOT DONE.
+
+**Perspective-diverse verify for high-stakes criteria.** This generalizes the restart-debate
+3-role panel (see Restart mode) and Anthropic's evaluator-optimizer/fresh-verifier pattern to
+in-loop high-stakes criteria. Normal-stakes criteria keep the single critic above.
+For a criterion tagged `stakes: high` in criteria.json (irreversible action, security surface,
+public-facing claim, or `attempts >= 2`), spawn the critic in THREE fresh contexts, each with a
+distinct `LENS:` directive in its prompt: correctness, security, reproducibility. Each returns a
+binary ACCEPT/REJECT + one gap line. Any REJECT blocks (unanimous ACCEPT required to pass).
+No per-lens numeric score. Record all three verdicts in the cycle review.
 
 **MERGE GATE:** nothing merges during EXECUTE. A worker's output stops at a draft PR. Only after the reviewer grades the relevant criterion MET on reproduced evidence AND the critic accepts it does the ORCHESTRATOR merge, recording the verdict in the cycle review. Workers never merge, ever. The merge gate reads the PR's Proof of work block against the reviewer's reproduction.
 

@@ -12,7 +12,12 @@ Probe checklist, applied to every passing criterion and every merged-or-mergeabl
 1. Was the evidence REPRODUCED this cycle or merely transcribed from a worker's claim?
 2. Does the cited test or command actually exercise the change, or does it pass vacuously?
 3. What input, edge case, or environment breaks it?
-4. What surface was never checked (other pages, other platforms, error paths)?
+4. Completeness: enumerate every surface, modality, or claim the GOAL names or implies. Mark each
+   CHECKED (evidence cited this cycle) or UNCHECKED. An in-scope UNCHECKED surface is an automatic
+   REJECT. Out-of-scope gaps become PROPOSE lines, not REJECTs.
+   If a LENS directive is present in your prompt (e.g. "LENS: security"), focus your attack
+   through that lens but still apply all other probes. Return ACCEPT/REJECT + one gap line per lens,
+   no per-lens score.
 5. For every external claim: verified from their repo or docs, or guessed from memory?
 6. Could this be done simpler? Does every added component earn its place?
 7. Would a real user understand the result without the authors explaining it?
