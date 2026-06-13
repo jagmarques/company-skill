@@ -276,8 +276,9 @@ else
   note_fail "dashboard D1/D4 tests failed"
 fi
 
-# 25. Autoloop supervisor: mock-driven cycle test (fresh session ids, NEXT.md seeding,
-#     no --continue regression, CANCEL, max-cycles cap, real-schema done, non-vacuity proofs).
+# 25. Autoloop supervisor: monitor-and-kill cycle test (stuck mock is killed and
+#     cycle 2 relaunches, fresh session ids, NEXT.md seeding, no --continue regression,
+#     CANCEL, max-cycles cap, real-schema done, spawnSync-wait-hangs non-vacuity proof).
 if node tests/autoloop.test.js; then
   echo "ok: autoloop supervisor matrix"
 else
