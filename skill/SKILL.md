@@ -256,6 +256,10 @@ Do not ask agents to echo or explain their internal reasoning as response text. 
 transcribe its internal reasoning can trigger the reasoning_extraction refusal on Fable 5, causing
 a silent fallback to a weaker model - the opposite of the intended effect.
 
+Anti-fabrication: every agent (worker, reviewer, critic) audits each factual claim against a tool
+result from the current session before reporting it. This is stated once here and repeated in each
+agent file because sub-agents never see SKILL.md.
+
 ## Loop
 
 Print as plain text (NOT Bash):
@@ -289,6 +293,8 @@ Collect every lead's contracts from the per-dept files (`cycle-{N}-tasks-{dept}.
 
 ### EXECUTE (orchestrator spawns workers in dependency waves)
 
+**Prefer short contracts over mega-contracts.** Fresh-context verification (reviewer + critic) runs at the cycle level. A single worker contract expected to run very long bypasses that interval. Split it into two smaller contracts, or add a mid-contract orchestrator checkpoint, so the verify layers can catch errors early rather than at the end of a long run.
+
 Spawn one `company-worker` Agent call per contract, mapping the contract's `MODEL:` tag to a spawn-time model per Model assignment (no tag means mid). Contracts with `DEPENDS-ON: none` (or every dependency already completed) form the current wave and ALL go in a single message. Dependents wait for their wave. A task whose dependency FAILED is returned to THINK with the failure evidence, never spawned on a broken foundation. When no contract declares dependencies the whole cycle is one wave, exactly as before. Each worker prompt is the full delegation contract verbatim plus the failed approaches from the playbook. A worker prompt that depends on chat history is a bug: the same prompt run twice must be safe (idempotent: check before create, no duplicate PRs or comments).
 
 If a contract assigns a skill, the worker invokes it via the Skill tool FIRST. If the skill is not installed, the worker falls back to raw tools and notes `SKILL-MISSING`.
@@ -321,6 +327,8 @@ SKILL-MISSING.
 **Scope:** do ONLY the assigned task. Adjacent problems get one line in findings (`ALSO-FOUND: ...`) for the next THINK, never fixed unbidden. For genuinely high-leverage opportunities spotted during the work, add a first-class line: `PROPOSE: {opportunity} - ROI: {why high value}`. The orchestrator's next THINK triages these and may promote them to contracts. Surface it, do not execute it unbidden. The one-worker-per-surface and do-only-assigned-task guardrails stay intact: PROPOSE is a signal, not a license to act.
 
 **Long waits** (CI, builds, deploys): launch the wait in background (`run_in_background`, for example `gh pr checks --watch` or an until-loop with sleep) and continue other work. Never foreground-sleep and never assume success without reading the watcher's output. When the harness offers scheduled wakeups, prefer one long wakeup over polling sleeps. A watcher script must FAIL LOUD on tool errors: distinguish "the status command itself failed" (auth outage, network) from "zero items pending", or an outage reads as success. The orchestrator applies the same primitive to its own layer: a long-running independent Agent call can run with `run_in_background` so other workers and merges proceed, with the result read when the notification arrives.
+
+**Async-first for independent work.** Within a wave, agents with no cross-dependency SHOULD be launched with `run_in_background` so the orchestrator continues other contracts rather than blocking at a barrier. Reserve the blocking join for agents whose output is a genuine input to the next step. Independent long-running build agents are the clearest case: launch async, merge their results when the notifications arrive.
 
 **Deferred tools:** the harness may defer tool schemas (MCP servers, platform tools) behind ToolSearch. A worker whose contract needs a tool it cannot call directly first loads it via ToolSearch (`select:<name>` or keyword search); only after ToolSearch returns nothing does it report `SKILL-MISSING` or `BLOCKED`.
 
@@ -384,6 +392,8 @@ The cycle review records whether lead contracts cited map-surfaced files. After 
 The digest also: (a) appends any FAILED -> USE INSTEAD or INEFFICIENT -> FASTER lesson discovered THIS cycle to `.company/playbook.md` immediately, dedup-gated (see After Done) - a session killed mid-run must not lose its lessons. (b) It records cost: run `npx ccusage@latest session --id "$CLAUDE_CODE_SESSION_ID" --json` (best effort: on any failure write `COST: unavailable` and move on), write `.company/cycles/cycle-{N}-cost.json` with totalCost and totalTokens, and put one line in the next briefing by diffing the previous cycle's file: `COST: cycle +{delta} tokens (~{delta} USD), run {cumulative}`. Tokens are the reliable number. USD can read 0 or low for models the tool cannot price.
 
 Do not try to run `/compact` yourself. It is a user command, not a tool. Context pressure is handled by the PreCompact and SessionStart hooks plus Restart mode.
+
+**Mid-run deliverables.** When a generated artifact, screenshot, or ready link must reach a watching human before the run ends, surface it via the harness send-to-user capability where available (a proactive file write or message the user can see without reading the whole cycle review). Do not bury mid-run deliverables in findings only.
 
 **CYCLE CLOSE HYGIENE (MANDATORY):** at the end of every COMPRESS phase, the orchestrator MUST run `node <skill-scripts-dir>/cleanup.js` to prune any remaining merged branches and stale worktrees. A run MUST NOT end with leftover merged branches or orphaned worktrees. Run with `--dry-run` first to see what would be removed, then without to apply.
 
@@ -465,8 +475,6 @@ default for orchestrator and verify roles. Do not add a `budget_tokens` field: i
 Claude 4.6+ and unsupported on Fable 5.
 
 ## Token cost discipline
-
-Cost discipline compresses prose, never evidence. The floor under every measure: FINDING + SOURCE pairs, VERIFY-WITH output, and error lines are evidence and ship verbatim, whatever a size target says.
 
 - **Cache-aware prompt layout.** Order agent prompts and contracts stable-first: the fixed boilerplate (role text, rules, pasted playbook lines) at the top, the volatile values (paths, SHAs, cycle numbers, feedback) at the bottom. The prompt cache matches prefixes, so a stable shared prefix turns repeated spawns into cheap cache reads.
 - **Worker tool-output discipline.** grep, head, and tail over cat. Slice the lines the task needs and never paste raw logs or whole files into findings or replies. Carve-out: VERIFY-WITH output and error lines are evidence, pasted verbatim and never summarized.

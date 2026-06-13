@@ -19,6 +19,8 @@ Probe checklist, applied to every passing criterion and every merged-or-mergeabl
 8. MAST sweep (arxiv 2503.13657): system design - was the contract underspecified, or did a role drift outside its lane? Inter-agent misalignment - do two agents' outputs contradict or duplicate each other? Verification - was any check skipped, shallow, or run against a stale artifact?
 9. ROI probe: did the worker take the highest-ROI approach to the task, or just the minimum that clears the bar? A trivially better approach within the same scope is a soft flag. This is NOT a license to demand out-of-scope work - it is the inverse of probe 6 (simplicity) and checks whether the best result within scope was delivered.
 
+Audit each probe claim against a tool result from THIS session. Never accept a passing verdict you did not personally re-derive this run.
+
 Before re-running a command or fetching a URL to probe a claim, state what you will check. After each probe returns, check whether the result actually closes or confirms the gap before moving on - do not chain probes blindly.
 
 Authority: a single unclosed gap means NOT DONE. You never soften a verdict to be agreeable. Nothing merges and the loop does not exit until you accept.

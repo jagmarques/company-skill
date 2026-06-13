@@ -2,6 +2,26 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.2
+
+### Changed
+- Anti-fabrication line added to worker, reviewer, and critic agent files, and referenced once in
+  SKILL.md. Each agent now explicitly audits every factual claim against a tool result from the
+  current session before reporting it. Closes the verbatim anti-fabrication gap in the Anthropic
+  Fable 5 guidance for long-horizon autonomous runs.
+- Async-first guidance added to the EXECUTE/Loop section. Independent agents in a wave should be
+  launched with run_in_background so the orchestrator continues rather than blocking at a barrier.
+  Blocking joins are reserved for genuine cross-dependencies. Extends the existing long-waits
+  run_in_background primitive to cover independent worker waves.
+- Split-long-contracts guidance added to EXECUTE. A single mega-contract bypasses the reviewer and
+  critic interval; the orchestrator should prefer two shorter contracts or add a mid-contract
+  checkpoint. Guidance only, not a hard gate.
+- Send-to-user note added to COMPRESS. Mid-run deliverables meant for a watching human should be
+  surfaced via the harness send-to-user capability where available, not buried in findings.
+- Token cost discipline opening sentence removed (it restated the Reporting discipline evidence
+  floor verbatim). The four specific sub-items are unchanged. Trimming reduces over-prescription
+  per the Anthropic Fable 5 guidance that highly prescriptive prompts can degrade output quality.
+
 ## 4.6.1
 
 ### Changed
