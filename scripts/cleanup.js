@@ -9,7 +9,8 @@
 //   - Only deletes a branch when gh confirms its PR is MERGED.
 //
 // Worktree cleanup:
-//   - Removes linked worktrees whose branch is already deleted remotely or merged.
+//   - Removes a linked worktree only when its branch was just deleted (merged evidence).
+//   - Skips any worktree with uncommitted or untracked changes (non-empty git status).
 //   - Runs `git worktree prune` to clear stale gitdir bookmarks.
 //
 // Usage:
@@ -112,6 +113,14 @@ function listWorktrees() {
   return worktrees;
 }
 
+// Return true when the worktree at wtPath has any uncommitted or untracked changes.
+// On error (path gone, not a git dir) returns true to fail safe (do not remove).
+function isWorktreeDirty(wtPath) {
+  const r = tryRun('git', ['-C', wtPath, 'status', '--porcelain'], {});
+  if (r.status !== 0 || r.error) return true; // fail safe
+  return (r.stdout || '').trim().length > 0;
+}
+
 // Check if a branch name has an OPEN PR. Returns true if open PR found.
 function hasOpenPR(branchName) {
   const r = tryRun('gh', ['pr', 'list', '--head', branchName, '--state', 'open', '--json', 'number']);
@@ -162,23 +171,29 @@ function main() {
   }
 
   // --- Worktree cleanup ---
+  // Only remove a worktree when its branch is in deletedBranches (merged-PR evidence).
+  // Absence from origin alone is NOT sufficient: a local-only unpushed branch is also
+  // absent and its worktree may contain unrecoverable untracked files.
   for (const wt of worktrees) {
     if (wt.isMain) continue; // never remove primary worktree
 
     const branch = wt.branch;
-    const shouldRemove = (
-      // Branch was just deleted or was already absent from origin.
-      (branch && !existing.has(branch) && branch !== 'main')
-      || (branch && deletedBranches.has(branch))
-    );
+    // Gate: branch must have been deleted in this run (merged evidence required).
+    if (!branch || !deletedBranches.has(branch)) continue;
 
-    if (!shouldRemove) continue;
+    // Gate: skip if the worktree has any uncommitted or untracked changes.
+    if (isWorktreeDirty(wt.path)) {
+      console.log('cleanup.js: skipping worktree ' + wt.path
+        + ' (branch: ' + branch + ') - has uncommitted or untracked changes');
+      continue;
+    }
 
     console.log('cleanup.js: ' + (isDryRun ? '[DRY-RUN] would remove' : 'removing')
       + ' worktree ' + wt.path + ' (branch: ' + (branch || 'detached') + ')');
 
     if (!isDryRun) {
-      const r = tryRun('git', ['worktree', 'remove', '--force', wt.path]);
+      // No --force: the dirty-tree guard above already ensures the tree is clean.
+      const r = tryRun('git', ['worktree', 'remove', wt.path]);
       if (r.status !== 0) {
         console.warn('cleanup.js: WARN failed to remove worktree ' + wt.path + ': '
           + (r.stderr || '').trim());
