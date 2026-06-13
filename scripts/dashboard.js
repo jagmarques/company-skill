@@ -1202,12 +1202,17 @@ tr:last-child td { border-bottom: none; }
 .pill.warn { background: rgba(154,103,0,0.12); color: var(--amber); }
 .empty { color: var(--dim); font-size: 13.5px; padding: 0.5rem 0; }
 .feed { font-size: 13px; max-height: 22rem; overflow-y: auto; }
-.feed .row { display: flex; gap: 0.75rem; padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
+.feed .row { border-bottom: 1px solid var(--line); }
 .feed .row:last-child { border-bottom: none; }
-.feed .ts { font-family: var(--font-mono); color: var(--dim); white-space: nowrap; font-size: 12px; padding-top: 0.1rem; }
+.feed-header { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.3rem 0; cursor: pointer; width: 100%; background: none; border: none; text-align: left; font-size: 13px; font-family: inherit; color: inherit; }
+.feed-header:hover { background: var(--hover); }
+.feed .ts { font-family: var(--font-mono); color: var(--dim); white-space: nowrap; font-size: 12px; flex-shrink: 0; }
 .feed .kind { font-weight: 600; width: 3.5rem; flex-shrink: 0; }
 .feed .kind.spawn { color: var(--cyan); }
 .feed .kind.finish { color: var(--accent); }
+.feed-bullet { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-caret { font-size: 11px; color: var(--dim); flex-shrink: 0; padding-left: 0.5rem; }
+.feed-detail { padding: 0.3rem 0 0.5rem 1.25rem; font-size: 12.5px; white-space: normal; word-break: break-word; color: var(--dim); }
 .ctx-card { margin-top: 2.5rem; }
 .ctx-gauge-wrap { position: relative; height: 10px; border-radius: var(--radius-pill); overflow: visible; background: var(--hover); margin: 1.25rem 0 2rem; }
 .ctx-gauge-bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: var(--radius-pill); transition: width 0.3s; }
@@ -1895,16 +1900,74 @@ function setupTreeInteractions() {
   });
 }
 
+// Per-feed-item expand: sessionStorage set of expanded item keys, keyed per session
+function feedStorageKey() {
+  return 'feedExpanded:' + (_treeSessionId || 'unbound');
+}
+
+function loadFeedExpanded() {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(feedStorageKey()) || '[]'));
+  } catch (_) { return new Set(); }
+}
+
+function saveFeedExpanded(set) {
+  try { sessionStorage.setItem(feedStorageKey(), JSON.stringify([...set])); } catch (_) {}
+}
+
+let _lastFeed = null;
+
+// Build a stable per-item key from ts + kind + agentType (no id on feed events)
+function feedItemKey(e, idx) {
+  return (e.ts || '') + ':' + (e.kind || '') + ':' + (e.agentType || '') + ':' + idx;
+}
+
 function renderFeed(s) {
   const root = $('feed');
   root.replaceChildren();
   const feed = s.feed || [];
-  if (!feed.length) { root.appendChild(el('div', 'empty', 'No spawn or finish events in the current transcript tail')); return; }
-  for (const e of feed) {
+  _lastFeed = feed;
+  if (!feed.length) {
+    root.appendChild(el('div', 'empty', 'No spawn or finish events in the current transcript tail'));
+    return;
+  }
+  const expanded = loadFeedExpanded();
+  for (let idx = 0; idx < feed.length; idx++) {
+    const e = feed[idx];
+    const key = feedItemKey(e, idx);
+    const isOpen = expanded.has(key);
+
     const row = el('div', 'row');
-    row.appendChild(el('span', 'ts', e.ts ? new Date(e.ts).toLocaleTimeString() : '?'));
-    row.appendChild(el('span', 'kind ' + e.kind, e.kind));
-    row.appendChild(el('span', null, e.agentType + ': ' + e.description));
+
+    // Collapsed header: timestamp + kind badge + truncated bullet + caret
+    const header = el('button', 'feed-header');
+    header.appendChild(el('span', 'ts', e.ts ? new Date(e.ts).toLocaleTimeString() : '?'));
+    header.appendChild(el('span', 'kind ' + e.kind, e.kind));
+    const bullet = el('span', 'feed-bullet');
+    bullet.textContent = (e.agentType || '') + ': ' + (e.description || '');
+    header.appendChild(bullet);
+    const caret = el('span', 'feed-caret');
+    caret.textContent = isOpen ? 'v' : '>';
+    header.appendChild(caret);
+    row.appendChild(header);
+
+    // Expanded detail: full text, wrapping freely
+    if (isOpen) {
+      const detail = el('div', 'feed-detail');
+      detail.textContent = (e.agentType || '') + ': ' + (e.description || '');
+      row.appendChild(detail);
+    }
+
+    header.addEventListener('click', () => {
+      // Read fresh from storage so concurrent tabs don't clobber each other
+      const current = loadFeedExpanded();
+      if (current.has(key)) current.delete(key);
+      else current.add(key);
+      saveFeedExpanded(current);
+      // Re-render only the feed section using cached state
+      if (_lastFeed !== null) renderFeed({ feed: _lastFeed });
+    });
+
     root.appendChild(row);
   }
 }
