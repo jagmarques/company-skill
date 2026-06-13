@@ -29,7 +29,7 @@ const STOPWORDS = new Set([
 ]);
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const CHARS_PER_TOKEN = 3.5;
-const REBUILD_CMD = root => 'node scripts/codegraph.js update --root ' + root;
+const REBUILD_CMD = root => 'node <skill-scripts-dir>/codegraph.js update --root ' + root;
 
 function parseArgs(argv) {
   const out = { cmd: argv[0], allowStale: false };

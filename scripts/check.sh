@@ -184,6 +184,14 @@ else
   note_fail "packaging installer coverage failed"
 fi
 
+# 17. Doc-command gate: every referenced script exists and no user-facing
+#     section in SKILL.md or agents/ uses a bare relative node scripts/x.js.
+if node scripts/check-doc-commands.js; then
+  echo "ok: doc-command references"
+else
+  note_fail "doc-command check failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
