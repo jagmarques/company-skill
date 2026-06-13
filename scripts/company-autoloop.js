@@ -29,9 +29,12 @@
 //     2. After a turn: CANCEL -> exit 0. Goal done (criteria all pass) -> exit 0.
 //     3. Compute fill from the transcript jsonl (last assistant usage block) and
 //        the model window. Log it.
-//     4. fill >= threshold: DRIVE `claude -p --resume <uuid> "/company restart"`,
-//        wait for RESTART_DEBATE_CONFIRMED + a fresh NEXT.md, then seed a NEW
-//        --session-id from NEXT.md. THIS is the fresh-context handoff.
+//     4. fill >= threshold: DRIVE `claude -p --resume <uuid> "/company restart"`
+//        ASYNC (do not await its exit - the company stop-guard blocks its stop so
+//        a headless restart invocation does NOT exit on its own), CONCURRENTLY
+//        poll for RESTART_DEBATE_CONFIRMED + a fresh NEXT.md, then KILL the restart
+//        process group and seed a NEW --session-id from NEXT.md. THIS is the
+//        fresh-context handoff.
 //     5. fill < threshold: continue the SAME session another turn via --resume.
 //
 //   --resume is used in exactly two legitimate places: continuing the same work
@@ -51,6 +54,7 @@
 //   --permission-mode <m>  claude --permission-mode value (default: bypassPermissions)
 //   --prompt-file <path>   Read initial goal from file instead of CLI arg
 //   --restart-timeout-secs <n>  Max wait for restart markers after driving it (default: 420)
+//   --turn-timeout-secs <n>  Wall-clock backstop kill for a single work turn (default: 900)
 //   --projects-dir <path>  Override the ~/.claude/projects transcript root (testing)
 //   --help                 Show this message
 //
@@ -100,6 +104,10 @@ const maxTurns = parseInt(argValue('--max-turns') || '100', 10);
 const permissionMode = argValue('--permission-mode') || 'bypassPermissions';
 const promptFile = argValue('--prompt-file');
 const restartTimeoutSecs = parseInt(argValue('--restart-timeout-secs') || '420', 10);
+// Generous wall-clock backstop: kills a work turn that never exits (model looping
+// on a blocked stop). Tuned NOT to kill legitimate long work - natural exit is the
+// primary end of a turn, this is only a last resort.
+const turnTimeoutSecs = parseInt(argValue('--turn-timeout-secs') || '900', 10);
 const claudeBin = process.env.CLAUDE_BIN || 'claude';
 
 // Transcript projects root: env wins, then --projects-dir, then ~/.claude/projects.
@@ -111,7 +119,8 @@ const projectsDir = process.env.COMPANY_TRANSCRIPT_DIR ||
 let goalArg = null;
 const flagsWithValues = new Set([
   '--project-dir', '--company-dir', '--max-turns',
-  '--permission-mode', '--prompt-file', '--restart-timeout-secs', '--projects-dir',
+  '--permission-mode', '--prompt-file', '--restart-timeout-secs',
+  '--turn-timeout-secs', '--projects-dir',
 ]);
 for (let i = 0; i < argv.length; i++) {
   if (flagsWithValues.has(argv[i])) { i++; continue; }
@@ -292,81 +301,152 @@ function computeFill(sessionId) {
   return { fill: used / window, used, window, modelId: lastModelId, transcript };
 }
 
-// ---------- run one claude -p turn to completion ----------
+// ---------- kill a child's whole process group (SIGTERM then SIGKILL) ----------
+// Children are spawned detached so each has its own process group (pgid === pid).
+// Signalling the negative pid hits the whole tree (e.g. restart's 3 debate
+// sub-agents), not just the top claude process. Best-effort: a gone group is fine.
+function killChildGroup(child, graceMs) {
+  if (!child || child.pid == null) return Promise.resolve();
+  const pgid = child.pid;
+  function signal(sig) {
+    try { process.kill(-pgid, sig); } catch (e) {
+      // Group already gone or never a group leader: fall back to the bare pid.
+      try { process.kill(pgid, sig); } catch (e2) {}
+    }
+  }
+  signal('SIGTERM');
+  return new Promise(function (resolve) {
+    let done = false;
+    function finish() { if (!done) { done = true; resolve(); } }
+    child.once('exit', finish);
+    setTimeout(function () { signal('SIGKILL'); finish(); }, graceMs || 1500);
+  });
+}
+
+// ---------- spawn one claude -p turn (async, caller owns the handle) ----------
 // freshSession=true seeds a NEW --session-id. Otherwise --resume the same id.
 // The prompt argument is the goal/NEXT on a fresh session, the continue nudge on
-// a resume, or "/company restart" when restart=true. Each -p call exits on its
-// own (expected headless behavior). stdout/stderr are drained so a full pipe
-// never blocks the child. Resolves with the child exit code.
-function runTurn(opts) {
-  return new Promise(function (resolve) {
-    const spawnArgs = ['-p'];
-    if (opts.freshSession) spawnArgs.push('--session-id', opts.sessionId);
-    else spawnArgs.push('--resume', opts.sessionId);
-    spawnArgs.push(
-      '--output-format', 'stream-json',
-      '--verbose',
-      '--include-hook-events',
-      '--permission-mode', permissionMode,
-      opts.prompt
-    );
+// a resume, or "/company restart" for restart mode. Spawned DETACHED so the child
+// leads its own process group and the whole tree can be killed via killChildGroup.
+// stdout/stderr are drained so a full pipe never blocks the child. Returns the
+// child handle plus a `done` promise resolving with the exit result.
+function spawnTurn(opts) {
+  const spawnArgs = ['-p'];
+  if (opts.freshSession) spawnArgs.push('--session-id', opts.sessionId);
+  else spawnArgs.push('--resume', opts.sessionId);
+  spawnArgs.push(
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--include-hook-events',
+    '--permission-mode', permissionMode,
+    opts.prompt
+  );
 
-    const spawnEnv = Object.assign({}, process.env, { COMPANY_DIR: companyDir });
-    const mode = opts.freshSession ? '--session-id' : '--resume';
-    log('spawning: ' + claudeBin + ' -p ' + mode + ' ' + opts.sessionId +
-        (opts.label ? ' [' + opts.label + ']' : '') + ' ...');
+  const spawnEnv = Object.assign({}, process.env, { COMPANY_DIR: companyDir });
+  const mode = opts.freshSession ? '--session-id' : '--resume';
+  log('spawning: ' + claudeBin + ' -p ' + mode + ' ' + opts.sessionId +
+      (opts.label ? ' [' + opts.label + ']' : '') + ' ...');
 
-    const child = spawn(claudeBin, spawnArgs, {
-      cwd: projectDir,
-      env: spawnEnv,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+  const child = spawn(claudeBin, spawnArgs, {
+    cwd: projectDir,
+    env: spawnEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
 
-    let stderrTail = '';
-    let stdoutBytes = 0;
-    child.stdout.on('data', function (d) { stdoutBytes += d.length; });
-    child.stderr.on('data', function (d) { stderrTail = (stderrTail + d.toString()).slice(-2000); });
-    child.stdout.on('error', function () {});
-    child.stderr.on('error', function () {});
+  let stderrTail = '';
+  let stdoutBytes = 0;
+  child.stdout.on('data', function (d) { stdoutBytes += d.length; });
+  child.stderr.on('data', function (d) { stderrTail = (stderrTail + d.toString()).slice(-2000); });
+  child.stdout.on('error', function () {});
+  child.stderr.on('error', function () {});
 
+  const done = new Promise(function (resolve) {
     child.on('error', function (e) {
       log('turn spawn error: ' + e.message);
-      resolve({ code: 127, stdoutBytes: 0, stderrTail: e.message });
+      resolve({ code: 127, stdoutBytes: 0, stderrTail: e.message, killed: false });
     });
-    child.on('exit', function (code) {
-      resolve({ code: code, stdoutBytes: stdoutBytes, stderrTail: stderrTail });
+    child.on('exit', function (code, signalName) {
+      resolve({ code: code, stdoutBytes: stdoutBytes, stderrTail: stderrTail,
+        killed: signalName != null });
+    });
+  });
+
+  return { child: child, done: done };
+}
+
+// ---------- run one work turn with a wall-clock backstop ----------
+// Awaits natural exit (the expected headless behavior). If the turn never exits
+// within turnTimeoutSecs (model looping on a blocked stop), kill its process group
+// and return so the loop can proceed to the fill check on the partial transcript.
+function runTurn(opts) {
+  const handle = spawnTurn(opts);
+  return new Promise(function (resolve) {
+    let settled = false;
+    const timer = setTimeout(function () {
+      if (settled) return;
+      log('WARN work turn exceeded ' + turnTimeoutSecs + 's wall clock - killing it');
+      killChildGroup(handle.child, 1500);
+    }, turnTimeoutSecs * 1000);
+    handle.done.then(function (res) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(res);
     });
   });
 }
 
 // ---------- drive a /company restart and wait for the handoff markers ----------
-// Runs `claude -p --resume <sessionId> "/company restart"` (restart mode runs the
-// full 3-role debate headlessly) then polls for RESTART_DEBATE_CONFIRMED present
-// AND a NEXT.md whose mtime is newer than when the restart call started. Returns
-// the NEXT.md contents, or null on timeout.
+// MONITOR-AND-KILL: the restart invocation is spawned ASYNC and NOT awaited. A
+// headless `claude -p "/company restart"` does NOT exit on its own (the company
+// stop-guard blocks its stop), so awaiting it would hang and the marker poll below
+// would never run (the real-world bug). Instead we poll CONCURRENTLY for
+// RESTART_DEBATE_CONFIRMED present AND a NEXT.md whose mtime is newer than the
+// restart start, then KILL the restart process group (its 3 debate sub-agents
+// included) and return NEXT.md. If the invocation exits on its own first (e.g. a
+// done goal), the markers are still evaluated. On timeout with no markers: kill
+// the invocation and return null.
 async function driveRestart(sessionId) {
   const restartStart = Date.now();
   // Clear any stale confirmed marker so we only react to THIS restart.
   try { fs.unlinkSync(debateConfirmedPath); } catch (e) {}
 
-  await runTurn({ sessionId: sessionId, freshSession: false, prompt: '/company restart',
-    label: 'company restart' });
+  const handle = spawnTurn({ sessionId: sessionId, freshSession: false,
+    prompt: '/company restart', label: 'company restart' });
+
+  // Track natural exit without awaiting it (a done goal can exit cleanly).
+  let exited = false;
+  handle.done.then(function () { exited = true; });
+
+  function readMarkers() {
+    let confirmed = false;
+    try { confirmed = fs.existsSync(debateConfirmedPath); } catch (e) {}
+    if (!confirmed) return null;
+    let freshNext = false;
+    try { freshNext = fs.statSync(nextMdPath).mtimeMs > restartStart; } catch (e) {}
+    if (!freshNext) return null;
+    let next = '';
+    try { next = fs.readFileSync(nextMdPath, 'utf8').trim(); } catch (e) {}
+    return next || null;
+  }
 
   const deadline = restartStart + restartTimeoutSecs * 1000;
   while (Date.now() < deadline) {
-    let confirmed = false;
-    try { confirmed = fs.existsSync(debateConfirmedPath); } catch (e) {}
-    if (confirmed) {
-      let freshNext = false;
-      try { freshNext = fs.statSync(nextMdPath).mtimeMs > restartStart; } catch (e) {}
-      if (freshNext) {
-        let next = '';
-        try { next = fs.readFileSync(nextMdPath, 'utf8').trim(); } catch (e) {}
-        if (next) return next;
-      }
+    const next = readMarkers();
+    if (next) {
+      log('restart markers present - killing the restart invocation');
+      await killChildGroup(handle.child, 1500);
+      return next;
+    }
+    if (exited) {
+      // The invocation exited on its own and the markers never appeared.
+      return readMarkers();
     }
     await sleep(2000);
   }
+  // Timeout with no markers: kill the (likely hung) invocation, signal failure.
+  await killChildGroup(handle.child, 1500);
   return null;
 }
 
@@ -376,7 +456,8 @@ async function main() {
 
   log('supervisor start | project=' + projectDir + ' company=' + companyDir +
       ' max-turns=' + maxTurns + ' permission-mode=' + permissionMode +
-      ' threshold=' + parseThreshold() + ' restart-timeout-secs=' + restartTimeoutSecs);
+      ' threshold=' + parseThreshold() + ' restart-timeout-secs=' + restartTimeoutSecs +
+      ' turn-timeout-secs=' + turnTimeoutSecs);
   log('initial prompt length=' + initialPrompt.length + ' chars');
 
   // A logical run = many sessions. sessionId is the current work session.

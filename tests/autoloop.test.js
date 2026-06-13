@@ -111,6 +111,7 @@ function writeMockClaude(scratch, companyDir, projectsDir, mode, tokensByCall) {
     "  const criteria = { goal: 't', criteria: [{ id: 1, passes: passVal, evidence: 'x', stakes: 'normal' }] };",
     "  fs.writeFileSync(path.join(companyDir, 'criteria.json'), JSON.stringify(criteria));",
     '}',
+    "const restartHangs = process.env.__MOCK_RESTART_HANGS === '1';",
     'function writeRestart() {',
     // NEXT.md first so its mtime is fresh, brief wait, then the confirmed marker.
     "  fs.writeFileSync(path.join(companyDir, 'NEXT.md'), nextContent);",
@@ -132,6 +133,13 @@ function writeMockClaude(scratch, companyDir, projectsDir, mode, tokensByCall) {
     "const isRestart = prompt === '/company restart';",
     'if (isRestart) {',
     '  writeRestart();',
+    '  // Simulate the real stop-guard-blocked restart invocation: markers are',
+    '  // written, then the process NEVER exits. The supervisor must kill it.',
+    '  if (restartHangs) {',
+    "    process.on('SIGTERM', function () {});",
+    '    setInterval(function () {}, 1000);',
+    '    return;',
+    '  }',
     '} else if (mode === "cancel") {',
     "  fs.writeFileSync(path.join(companyDir, 'CANCEL'), '');",
     '} else if (mode === "done") {',
@@ -223,6 +231,23 @@ function sessionIdOf(argv) {
 function isFresh(argv) { return argv.indexOf('--session-id') !== -1; }
 function isResume(argv) { return argv.indexOf('--resume') !== -1; }
 function isRestartDrive(argv) { return lastArg(argv) === '/company restart'; }
+
+// pidAlive: probe a pid with signal 0 (no signal sent, just an existence check).
+function pidAlive(pid) {
+  if (pid == null) return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+// Reap any mock pids still alive (CI-safe cleanup, used in finally blocks).
+function reapPids(invFile) {
+  for (const inv of readInvocations(invFile)) {
+    if (pidAlive(inv.pid)) {
+      try { process.kill(inv.pid, 'SIGKILL'); } catch (e) {}
+      // The mock leads its own group when spawned detached - kill the group too.
+      try { process.kill(-inv.pid, 'SIGKILL'); } catch (e) {}
+    }
+  }
+}
 
 // ---------- Case 1: under-threshold resumes the SAME session, no restart ----------
 // Turn 1 fill 0.30 (under). Turn 2 must RESUME the same session id, not restart,
@@ -414,6 +439,145 @@ check('NON-VACUITY: fill-ignoring supervisor never restarts, never spawns a 2nd 
     '/company restart and used ' + ids.size + ' distinct session id(s). The case-2 ' +
     'assertion (drive restart at threshold, then a NEW session from NEXT.md) FAILS ' +
     'against this variant. The threshold-driven restart path is load-bearing.\n'
+  );
+});
+
+// ---------- Case 8: HUNG restart invocation is detected, killed, turn 2 proceeds ----------
+// The real bug: `claude -p "/company restart"` writes the markers then NEVER exits
+// (the company stop-guard blocks its stop). driveRestart must NOT await its exit.
+// It must detect the markers concurrently, KILL the hung restart process group
+// (the mock catches SIGTERM, so the kill must escalate to SIGKILL), and seed a
+// fresh turn-2 session from NEXT.md. We assert: a restart was driven, that mock
+// pid is GONE afterwards, and a NEW distinct session was launched with NEXT.md.
+check('HUNG restart: markers detected, hung invocation killed, fresh turn 2 from NEXT.md', function () {
+  let invFile;
+  try {
+    const r = runSupervisor({
+      mode: 'restart',
+      tokensByCall: [300, 600],
+      maxTurns: 4,
+      extraEnv: { __MOCK_RESTART_HANGS: '1' },
+      restartTimeoutSecs: 15,
+      timeout: 30000,
+    });
+    invFile = r.invFile;
+    if (r.timedOut) {
+      return 'supervisor TIMED OUT against a hung restart - driveRestart awaited the ' +
+        'hung invocation instead of monitor-and-kill\nstderr: ' + r.stderr.slice(-500);
+    }
+    const invs = readInvocations(r.invFile);
+    const restartIdx = invs.findIndex(function (i) { return isRestartDrive(i.argv); });
+    if (restartIdx === -1) {
+      return 'supervisor never drove /company restart\nstderr: ' + r.stderr.slice(-500);
+    }
+    // The hung restart invocation's pid must be GONE (killChildGroup reaped it).
+    const restartPid = invs[restartIdx].pid;
+    if (pidAlive(restartPid)) {
+      return 'hung restart invocation pid ' + restartPid + ' is still alive - not killed';
+    }
+    // A fresh turn-2 session seeded from NEXT.md must follow.
+    const after = invs.slice(restartIdx + 1).find(function (i) { return isFresh(i.argv); });
+    if (!after) {
+      return 'no fresh turn-2 session after killing the hung restart\nstderr: ' +
+        r.stderr.slice(-500);
+    }
+    if (lastArg(after.argv) !== NEXT_CONTENT) {
+      return 'turn-2 prompt is not the NEXT.md content.\n  got: ' + lastArg(after.argv);
+    }
+    if (sessionIdOf(after.argv) === sessionIdOf(invs[0].argv)) {
+      return 'turn-2 session id is not distinct from the work session';
+    }
+  } finally {
+    if (invFile) reapPids(invFile);
+  }
+});
+
+// ---------- Case 9: NON-VACUITY - the OLD await-first driveRestart HANGS ----------
+// Reconstruct the buggy driveRestart (await runTurn FIRST, then poll). Run it in a
+// tiny harness against the same hung mock. Because the mock never exits, the awaited
+// runTurn never resolves, the poll loop never runs, and the harness must HANG until
+// our bounded timeout fires. We capture that timeout as the non-vacuity proof: the
+// fixed monitor-and-kill design passes Case 8 where this OLD design times out.
+check('NON-VACUITY: OLD await-runTurn-first driveRestart HANGS against a hung restart', function () {
+  const scratch = makeScratch();
+  const companyDir = path.join(scratch, '.company');
+  const projectsDir = path.join(scratch, 'projects');
+  const { mockPath, invFile } =
+    writeMockClaude(scratch, companyDir, projectsDir, 'restart', [600]);
+
+  // A harness embedding the OLD driveRestart: await the restart invocation to EXIT
+  // first, THEN poll for markers. No monitor-and-kill, no detached group.
+  const oldHarness = [
+    "'use strict';",
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const { spawn } = require('node:child_process');",
+    'const companyDir = process.env.COMPANY_DIR;',
+    "const debateConfirmedPath = path.join(companyDir, 'RESTART_DEBATE_CONFIRMED');",
+    "const nextMdPath = path.join(companyDir, 'NEXT.md');",
+    'const claudeBin = process.env.CLAUDE_BIN;',
+    'function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }',
+    'function oldRunTurn(){',
+    '  return new Promise(function(resolve){',
+    "    const c = spawn(claudeBin, ['-p', '--resume', 'sid', '/company restart'],",
+    "      { cwd: process.cwd(), env: Object.assign({}, process.env, { COMPANY_DIR: companyDir }), stdio: ['ignore','pipe','pipe'] });",
+    '    c.stdout.on("data", function(){});',
+    '    c.stderr.on("data", function(){});',
+    '    c.on("exit", function(code){ resolve(code); });',
+    '  });',
+    '}',
+    'async function oldDriveRestart(){',
+    '  const restartStart = Date.now();',
+    '  try { fs.unlinkSync(debateConfirmedPath); } catch(e){}',
+    '  await oldRunTurn();', // HANGS here forever: the mock never exits.
+    '  const deadline = restartStart + 30000;',
+    '  while (Date.now() < deadline) {',
+    '    if (fs.existsSync(debateConfirmedPath)) {',
+    '      try { if (fs.statSync(nextMdPath).mtimeMs > restartStart) { console.log("REACHED_POLL"); process.exit(0); } } catch(e){}',
+    '    }',
+    '    await sleep(500);',
+    '  }',
+    '  process.exit(0);',
+    '}',
+    'oldDriveRestart();',
+  ].join('\n');
+
+  const harnessPath = path.join(scratch, 'old-harness.js');
+  fs.writeFileSync(harnessPath, oldHarness);
+
+  let res;
+  try {
+    res = spawnSync(process.execPath, [harnessPath], {
+      cwd: scratch,
+      env: Object.assign({}, process.env, {
+        CLAUDE_BIN: mockPath,
+        COMPANY_DIR: companyDir,
+        __MOCK_RESTART_HANGS: '1',
+      }),
+      encoding: 'utf8',
+      timeout: 6000,
+      killSignal: 'SIGKILL',
+    });
+  } finally {
+    reapPids(invFile);
+  }
+
+  const harnessTimedOut = res.error && res.error.code === 'ETIMEDOUT';
+  if (!harnessTimedOut) {
+    return 'OLD await-first driveRestart did NOT hang (exited code=' + res.status +
+      ', stdout=' + JSON.stringify((res.stdout || '').trim()) + '). The mock should ' +
+      'have made it hang on the awaited runTurn - test would be vacuous.';
+  }
+  if ((res.stdout || '').indexOf('REACHED_POLL') !== -1) {
+    return 'OLD driveRestart reached the poll loop - it should never get past the await';
+  }
+
+  process.stderr.write(
+    '[autoloop.test] NON-VACUITY: the OLD await-runTurn-first driveRestart HUNG ' +
+    'against a hung restart mock (bounded 6000ms harness timeout fired, never logged ' +
+    'REACHED_POLL - the awaited restart invocation never exited so the marker poll ' +
+    'loop was unreachable). The fixed monitor-and-kill driveRestart passes Case 8 on ' +
+    'the SAME hung mock. The async-spawn-and-kill path is load-bearing.\n'
   );
 });
 
