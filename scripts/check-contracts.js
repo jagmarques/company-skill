@@ -46,10 +46,11 @@ blocks.forEach((b, i) => {
   const vw = (b.split('VERIFY-WITH:')[1] || '').split('\n')[0].trim();
   const errs = [];
   if (missing.length) errs.push('missing ' + missing.join(' '));
-  // 8g fix: require a command/verb token, path component, or URL so bare phrases
-  // like "yes done" are rejected. The old vw.length < 8 guard was removed: it
-  // caused a false-positive on real short commands like "git log" (7 chars).
-  const VW_RE = /[/.:]|\b(test|grep|node|python3?|gh|git|curl|cat|ls|npm|make|pytest|diff|echo|jq|bash|sh)\b|\$\(|`|\|\||&&/;
+  // 8g fix: require a command/verb token, path component, URL, or a concrete
+  // visual-verify phrase (screenshot/playwright/open + named URL/path) so bare
+  // filler like "yes done" is rejected. Named-URL screenshot forms are explicitly
+  // allowed per skill guidance ("an equally concrete check, like a named URL").
+  const VW_RE = /[/.:]|\b(test|grep|node|python3?|gh|git|curl|cat|ls|npm|make|pytest|diff|echo|jq|bash|sh|playwright)\b|\$\(|`|\|\||&&|screenshot\s+https?:\/\/\S+|open\s+https?:\/\/\S+/;
   if (b.includes('VERIFY-WITH:') && (!vw.length || !VW_RE.test(vw))) errs.push('VERIFY-WITH is empty or vacuous');
   // ROI must have non-empty content after the colon so triage has something to sort on.
   const roi = (b.split('ROI:')[1] || '').split('\n')[0].trim();

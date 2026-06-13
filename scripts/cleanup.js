@@ -129,7 +129,7 @@ function hasOpenPR(branchName) {
     const prs = JSON.parse(r.stdout || '[]');
     return prs.length > 0;
   } catch (e) {
-    return false;
+    return true; // fail safe: unparseable output -> assume open PR, block deletion
   }
 }
 

@@ -644,6 +644,8 @@ function computeContextFill(transcriptFile, overrideModel) {
 
 // ---------- COMPANY.md org chart parser ----------
 // Returns { departments: [{ name, lead, roles: [{ name, isLead }] }] }
+// Non-roster headings (Priorities, Rules) and HTML-commented blocks are skipped.
+const NON_ROSTER_SECTIONS = /^(priorities|rules)$/i;
 function parseCompanyMd() {
   // Resolve COMPANY.md: env COMPANY_DIR first, else project cwd, else ~/.company
   const candidates = [
@@ -657,77 +659,72 @@ function parseCompanyMd() {
   }
   if (!text) return { departments: [] };
 
+  // Strip HTML comment blocks before parsing so commented-out sections are invisible.
+  text = text.replace(/<!--[\s\S]*?-->/g, '');
+
   const departments = [];
   let currentDept = null;
 
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim();
-    // ## heading = new department; strip parenthetical metadata (e.g. "Growth (added 2026-06-09)")
+    // ## heading = new department candidate; strip parenthetical metadata first.
     if (/^##\s+/.test(line)) {
       const raw = line.replace(/^##\s+/, '').trim();
+      // BUG #3: extract the declared lead from the heading "(Lead: X)" before stripping it.
+      const headingLeadMatch = raw.match(/\(Lead:\s*([^)]+)\)/i);
+      const headingLeadName = headingLeadMatch ? headingLeadMatch[1].trim() : null;
       const deptName = raw.replace(/\s*\([^)]*\).*$/, '').trim();
-      currentDept = { name: deptName, lead: null, roles: [] };
+      // BUG #2: skip known non-roster sections (Priorities, Rules).
+      if (NON_ROSTER_SECTIONS.test(deptName)) { currentDept = null; continue; }
+      currentDept = { name: deptName, lead: null, roles: [], _headingLeadName: headingLeadName };
       departments.push(currentDept);
       continue;
     }
     // Bullet line = a role entry (- **Name** - desc or - Name: desc or - Name, desc)
     if (/^[-*]\s+/.test(line) && currentDept) {
       const body = line.replace(/^[-*]\s+/, '').replace(/\*\*/g, '');
-      // Role name = text before first comma, dash, or colon; strip trailing parenthetical metadata
-      const nameMatch = body.match(/^([^,\-:]+)/);
-      if (!nameMatch) continue;
-      let roleName = nameMatch[1].replace(/\s*\([^)]*\).*$/, '').trim();
-      // Strip trailing "Lead" prefix markers like "Lead:"
-      const isExplicitLead = /^lead:/i.test(roleName) || / lead$/i.test(roleName);
-      if (/^lead:/i.test(roleName)) roleName = roleName.replace(/^lead:/i, '').trim();
+      // BUG #3: detect "Lead: Name" bullet form - name comes AFTER the colon.
+      const leadPrefixMatch = body.match(/^lead:\s*([^,\-\n]+)/i);
+      let roleName, isExplicitLead;
+      if (leadPrefixMatch) {
+        // "- Lead: Ana runs growth" -> roleName = "Ana", isExplicitLead = true
+        roleName = leadPrefixMatch[1].replace(/\s*\([^)]*\).*$/, '').trim().split(/\s+/)[0];
+        isExplicitLead = true;
+      } else {
+        // Normal "- Name, desc" or "- Name - desc" form
+        const nameMatch = body.match(/^([^,\-:]+)/);
+        if (!nameMatch) continue;
+        roleName = nameMatch[1].replace(/\s*\([^)]*\).*$/, '').trim();
+        isExplicitLead = false;
+      }
       // CEO is always tier-0, skip from dept roles
       if (/^ceo$/i.test(roleName)) continue;
       const role = { name: roleName, isLead: isExplicitLead };
       currentDept.roles.push(role);
-      // First role in dept becomes the lead if none marked explicit
+      // First role in dept becomes the lead if none marked explicit and no heading lead declared
       if (!currentDept.lead) currentDept.lead = role;
       if (isExplicitLead && currentDept.lead !== role) currentDept.lead = role;
     }
   }
-  // Remove departments with no roles
+
+  // Post-process: apply heading-declared lead (BUG #3) - override first-role default
+  for (const dept of departments) {
+    if (dept._headingLeadName && dept.roles.length > 0) {
+      // Find the role whose name matches the heading lead declaration
+      const found = dept.roles.find(r =>
+        r.name.toLowerCase() === dept._headingLeadName.toLowerCase()
+      );
+      if (found) dept.lead = found;
+      // If no role matches the heading name exactly, fall back to first role (safe default)
+    }
+    delete dept._headingLeadName;
+  }
+
+  // Remove departments with no roles (BUG #2: also removes phantom sections)
   return { departments: departments.filter(d => d.roles.length > 0) };
 }
 
-// ---------- MUST-FIX 3 (revised): org tree from COMPANY.md + live agent overlay ----------
-function getActiveCycleNumber() {
-  // Read active cycle from roster header or latest cycle-N-briefing.md
-  const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';
-  const m = rosterText.match(/cycle\s+(\d+)/i);
-  if (m) return parseInt(m[1], 10);
-  // Fallback: find highest numbered briefing
-  try {
-    const files = fs.readdirSync(path.join(COMPANY_DIR, 'cycles'));
-    let max = 0;
-    for (const f of files) {
-      const bm = f.match(/^cycle-(\d+)-briefing\.md$/);
-      if (bm) { const n = parseInt(bm[1], 10); if (n > max) max = n; }
-    }
-    if (max > 0) return max;
-  } catch (_) { /* ignore */ }
-  return null;
-}
-
-function parseCycleTaskFile(filepath) {
-  const text = cachedReadFile(filepath);
-  if (!text) return [];
-  const tasks = [];
-  // Match TASK N: ... EMPLOYEE: ... blocks separated by ---
-  const taskRe = /^TASK\s+\d+:\s*(.+?)\n(?:[\s\S]*?)^EMPLOYEE:\s*(.+?)(?:\n(?:[\s\S]*?)^SURFACES:\s*(.+?))?(?:\n|$)/gm;
-  let tm;
-  while ((tm = taskRe.exec(text)) !== null) {
-    tasks.push({
-      task: tm[1].trim().slice(0, 120),
-      employee: tm[2].trim().slice(0, 60),
-      surfaces: tm[3] ? tm[3].trim().slice(0, 80) : null
-    });
-  }
-  return tasks;
-}
+// ---------- Org tree from COMPANY.md + live agent overlay ----------
 
 // Score how well a live agent name matches a COMPANY.md role name (higher = better)
 function roleMatchScore(agentStr, roleName) {
@@ -746,25 +743,6 @@ function roleMatchScore(agentStr, roleName) {
 function buildOrgTree(projDir, sessionId, liveAgents) {
   // Tier 0: orchestrator (CEO)
   const orchNode = { id: 'orchestrator', tier: 0, label: 'CEO', status: 'active', dept: null };
-
-  const activeCycle = getActiveCycleNumber();
-  const cyclesDir = path.join(COMPANY_DIR, 'cycles');
-
-  // Load enrichment from active cycle task files: dept -> [{task, employee, surfaces}]
-  const enrichment = new Map();
-  try {
-    const files = fs.readdirSync(cyclesDir);
-    for (const f of files) {
-      if (activeCycle !== null) {
-        const bm = f.match(/^cycle-(\d+)-tasks-(.+)\.md$/);
-        if (bm && parseInt(bm[1], 10) === activeCycle) {
-          const dept = bm[2];
-          const tasks = parseCycleTaskFile(path.join(cyclesDir, f));
-          if (tasks.length > 0) enrichment.set(dept, tasks);
-        }
-      }
-    }
-  } catch (_) { /* ignore */ }
 
   // Load active-roster.md employee names for mapping
   const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';

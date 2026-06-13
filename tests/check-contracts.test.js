@@ -46,5 +46,12 @@ check('empty VERIFY-WITH still fails', GOOD.replace('VERIFY-WITH: grep -c x file
 check('missing ROI fails', GOOD.replace('ROI: high - unblocks triage ordering\n', ''), 1);
 check('empty ROI fails', GOOD.replace('ROI: high - unblocks triage ordering', 'ROI:'), 1);
 check('valid ROI passes', GOOD, 0);
+// NIT: VERIFY-WITH loosening - named-URL screenshot and playwright forms must pass.
+check('screenshot URL form passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: screenshot http://127.0.0.1:3000/path'), 0);
+check('open URL form passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: open http://127.0.0.1:3001/dashboard'), 0);
+check('playwright verb passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: playwright run e2e-suite'), 0);
+// Vacuity hole must stay closed: pure filler without a concrete anchor still fails.
+check('filler "review the PR manually" still fails', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: review the PR manually'), 1);
+check('filler "check it looks right" still fails', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: check it looks right'), 1);
 if (failures) { console.log('CHECK-CONTRACTS TESTS FAILED: ' + failures); process.exit(1); }
 console.log('ALL CHECK-CONTRACTS TESTS PASSED (' + n + ' checks)');

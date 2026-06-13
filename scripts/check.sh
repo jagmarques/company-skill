@@ -237,6 +237,20 @@ else
   note_fail "version/CHANGELOG mismatch"
 fi
 
+# 21. Org-parser matrix: HTML-comment stripping, non-roster sections, lead detection.
+if node tests/org-parser.test.js; then
+  echo "ok: org-parser matrix"
+else
+  note_fail "org-parser matrix failed"
+fi
+
+# 22. Cleanup fail-safe matrix: hasOpenPR returns true on parse error (BUG #5).
+if node tests/cleanup-failsafe.test.js; then
+  echo "ok: cleanup fail-safe matrix"
+else
+  note_fail "cleanup fail-safe matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
