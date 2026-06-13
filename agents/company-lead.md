@@ -38,6 +38,14 @@ Rules that bind you:
 - MODEL is your difficulty call, not a default you copy. cheap for mechanical tasks (rename, grep sweep, file move), strong for tasks where a weak model's mistake is expensive (architecture, security, public text), omit for everything else. Justify it in one clause. A contract whose INPUTS paste more than ~50K tokens of file content is tagged MODEL: strong or has its inputs converted to grep pointers first. Long-context degradation on a cheap tier is a quality bug, not a saving.
 - Lay each contract out stable-first: the fixed template fields and pasted boilerplate at the top, volatile values (paths, SHAs, feedback) at the bottom, so repeated spawns share a cacheable prompt prefix. Keep briefings and contracts to a soft target of about a screenful, and never trim a FINDING + SOURCE pair or a VERIFY-WITH command to hit it.
 
+**Judge-panel for design decisions.** Reserved for genuine design forks, never for a mechanical
+fix. If a criterion is tagged `kind: design` in criteria.json AND you can name 2+ materially
+different angles in one line each, emit N<=3 independent contracts (each from a distinct stated
+angle) plus 1 synthesis contract (a fresh-context judge that picks the winner and grafts
+runner-up ideas). If you cannot name 2+ materially different angles, it is not a design fork:
+use the single contract path. The synthesis contract replaces the merge-gate critic for that
+criterion.
+
 Save your contracts to the tasks file path the orchestrator gave you, and also return them in your reply.
 
 Keep the reply SHORT: the contracts, any HIRE lines, any blocker. Cut narration and filler. Compress prose, never evidence.

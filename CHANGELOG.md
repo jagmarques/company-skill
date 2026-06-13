@@ -2,6 +2,31 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.3
+
+### Changed
+- Perspective-diverse verify for high-stakes criteria (SKILL.md VERIFY). This extends the
+  skill's own restart-debate 3-role panel and Anthropic's evaluator-optimizer/fresh-verifier
+  pattern to in-loop high-stakes criteria (tagged `stakes: high` in criteria.json). For those
+  criteria only, the orchestrator spawns three fresh-context critics, each with a distinct LENS
+  directive (correctness, security, reproducibility). Any REJECT blocks. Normal-stakes criteria
+  keep the single critic unchanged. This is not a verbatim Anthropic recipe: it generalizes our
+  own restart panel pattern applied one stage earlier in the loop.
+- Completeness probe sharpened (company-critic.md probe 4). The prior single line "what surface
+  was never checked" is replaced with an explicit enumerate-and-mark step: the critic lists every
+  surface the GOAL names or implies, marks each CHECKED or UNCHECKED, and auto-REJECTs any
+  in-scope UNCHECKED surface. Out-of-scope gaps become PROPOSE lines. Directly extends
+  Anthropic's "verify against the specification" pattern from the Fable 5 guidance.
+- Judge-panel for design decisions (company-lead.md). For criteria tagged `kind: design` in
+  criteria.json, the lead may emit N<=3 independent contracts from materially different angles
+  plus 1 synthesis contract. Reserved for genuine design forks: if the lead cannot name 2+
+  materially different angles, it is not a design fork and the single path is used. This is the
+  parallel-attempts-then-synthesize pattern from the multi-agent coverage literature, with an
+  explicit anti-bloat reserve clause.
+- Effort/model allocation couples stakes to ROI (SKILL.md Effort scaling, one clause). The
+  existing "Tie effort to ROI" sentence now reads "Tie effort to ROI and stakes", making explicit
+  that strong/high-effort spawn is warranted by either high value or high risk, not ROI alone.
+
 ## 4.6.2
 
 ### Changed
