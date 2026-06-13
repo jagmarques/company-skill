@@ -606,6 +606,15 @@ function parseContextThreshold() {
   return v > 1 ? v / 100 : v;
 }
 
+// Sum all token fields that count against the context window.
+// Matches the Claude Code status line: input + cache_read + cache_creation + output.
+function usedTokens(usage) {
+  return (usage.input_tokens || 0) +
+    (usage.cache_read_input_tokens || 0) +
+    (usage.cache_creation_input_tokens || 0) +
+    (usage.output_tokens || 0);
+}
+
 function computeContextFill(transcriptFile, overrideModel) {
   const threshold = parseContextThreshold();
   if (!transcriptFile) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
@@ -634,9 +643,7 @@ function computeContextFill(transcriptFile, overrideModel) {
     return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
   }
   if (!lastUsage) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: lastModelId };
-  const used = (lastUsage.input_tokens || 0) +
-    (lastUsage.cache_read_input_tokens || 0) +
-    (lastUsage.cache_creation_input_tokens || 0);
+  const used = usedTokens(lastUsage);
   const contextWindow = detectWindow(lastModelId);
   const fill = used / contextWindow;
   return { used, window: contextWindow, fill, threshold, modelId: lastModelId };
@@ -2240,3 +2247,8 @@ server.on('error', (err) => {
 });
 
 startListening();
+
+// Test-only exports; the server path never calls require() on itself.
+if (typeof module !== 'undefined') {
+  module.exports = { usedTokens };
+}
