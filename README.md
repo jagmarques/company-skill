@@ -108,7 +108,7 @@ Multi-agent orchestration buys quality with tokens. /company's answer to the tok
 
 **Delegation contracts** - a task does not exist without a filled contract. `check-contracts.js` rejects missing fields, vacuous VERIFY-WITH commands, invalid MODEL tiers, and cyclic dependencies. [17-check test](tests/check-contracts.test.js).
 
-**Double verification** - the Internal Reviewer re-runs every VERIFY-WITH command independently. The Devil's Advocate attacks everything marked passing. Two independent reproductions are evidence; one transcript is a hypothesis.
+**Double verification** - the Internal Reviewer re-runs every VERIFY-WITH command independently. The Devil's Advocate attacks everything marked passing. Two independent reproductions are evidence. One transcript is a hypothesis.
 
 **Git isolation** - workers never push to main and never merge. Every code change lands as a draft PR. The merge gate is yours.
 
