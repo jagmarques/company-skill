@@ -70,15 +70,46 @@ for _p in \
 done
 if ! command -v node > /dev/null 2>&1 || [ ! -f "$_DASH_SCRIPT" ]; then
   true  # node or script absent - skip silently
-elif curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
-  echo "Dashboard already running: http://127.0.0.1:${_DASH_PORT}"
 else
-  node "$_DASH_SCRIPT" --port "$_DASH_PORT" --session-id "$_SID" > /tmp/company-dashboard-${_DASH_PORT}.log 2>&1 &
-  sleep 1
-  if curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
-    echo "Dashboard started: http://127.0.0.1:${_DASH_PORT}"
+  # Read the registry to find this session's recorded port (may differ from
+  # the derived port if the server probed to a higher port on EADDRINUSE).
+  _REG_FILE="${COMPANY_DIR:-.company}/dashboard-registry.json"
+  _REG_PORT=""
+  if [ -f "$_REG_FILE" ] && [ -n "$_SID" ]; then
+    _REG_PORT="$(node -e "
+      try {
+        const r=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+        const e=r.sessions&&r.sessions[process.argv[2]];
+        process.stdout.write(e&&e.port?String(e.port):'');
+      } catch(_){}
+    " "$_REG_FILE" "$_SID" 2>/dev/null)"
+  fi
+  _CHECK_PORT="${_REG_PORT:-$_DASH_PORT}"
+  # Verify the answering server belongs to THIS session before declaring running
+  _ALREADY_RUNNING=0
+  if curl -sf "http://127.0.0.1:${_CHECK_PORT}/api/state" > /tmp/company-dash-probe-$$.json 2>&1; then
+    _SERVER_SID="$(node -e "
+      try {
+        const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+        process.stdout.write(d.sessionId||'');
+      } catch(_){}
+    " /tmp/company-dash-probe-$$.json 2>/dev/null)"
+    rm -f /tmp/company-dash-probe-$$.json
+    if [ -n "$_SID" ] && [ "$_SERVER_SID" = "$_SID" ]; then
+      _ALREADY_RUNNING=1
+    fi
+  fi
+  rm -f /tmp/company-dash-probe-$$.json
+  if [ "$_ALREADY_RUNNING" = "1" ]; then
+    echo "Dashboard already running: http://127.0.0.1:${_CHECK_PORT}"
   else
-    echo "Dashboard start attempted: http://127.0.0.1:${_DASH_PORT} (check /tmp/company-dashboard-${_DASH_PORT}.log)"
+    node "$_DASH_SCRIPT" --port "$_DASH_PORT" --session-id "$_SID" > /tmp/company-dashboard-${_DASH_PORT}.log 2>&1 &
+    sleep 1
+    if curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
+      echo "Dashboard started: http://127.0.0.1:${_DASH_PORT}"
+    else
+      echo "Dashboard start attempted: http://127.0.0.1:${_DASH_PORT} (check /tmp/company-dashboard-${_DASH_PORT}.log)"
+    fi
   fi
 fi
 ```

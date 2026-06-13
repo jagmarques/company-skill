@@ -719,12 +719,24 @@ function buildOrgTree(projDir, sessionId, liveAgents) {
 
 // ---------- registry ----------
 const REGISTRY_FILE = path.join(COMPANY_DIR, 'dashboard-registry.json');
+// Max age before a registry entry is considered stale (5 minutes)
+const REGISTRY_STALE_MS = 5 * 60 * 1000;
 
 function readRegistry() {
   try {
     const raw = fs.readFileSync(REGISTRY_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && parsed.sessions) return parsed;
+    if (parsed && typeof parsed === 'object' && parsed.sessions) {
+      // Filter stale entries (lastSeen older than REGISTRY_STALE_MS)
+      const now = Date.now();
+      for (const [sid, entry] of Object.entries(parsed.sessions)) {
+        const ts = entry.lastSeen || entry.startedAt;
+        if (ts && (now - new Date(ts).getTime()) > REGISTRY_STALE_MS) {
+          delete parsed.sessions[sid];
+        }
+      }
+      return parsed;
+    }
   } catch (_) { /* ignore */ }
   return { sessions: {} };
 }
@@ -760,15 +772,18 @@ function refreshRegistryLastSeen() {
   writeRegistryEntry(SESSION_ID, ownEntry);
 }
 
-// Remove own entry on exit
-process.on('exit', () => {
+// Remove own entry on clean exit or signal
+function pruneOwnRegistryEntry() {
   if (!SESSION_ID) return;
   try {
     const reg = readRegistry();
     delete reg.sessions[SESSION_ID];
     fs.writeFileSync(REGISTRY_FILE, JSON.stringify(reg, null, 2));
   } catch (_) { /* ignore */ }
-});
+}
+process.on('exit', pruneOwnRegistryEntry);
+process.on('SIGTERM', () => { pruneOwnRegistryEntry(); process.exit(0); });
+process.on('SIGINT',  () => { pruneOwnRegistryEntry(); process.exit(0); });
 
 // ---------- /api/state ----------
 function buildState() {
@@ -1729,8 +1744,20 @@ const server = http.createServer((req, res) => {
   res.end('not found');
 });
 
-server.listen(PORT, HOST, () => {
+// Linear-probe on EADDRINUSE: try PORT, PORT+1 .. PORT+20 then exit.
+const PORT_PROBE_MAX = 20;
+let currentPort = PORT;
+
+function startListening() {
+  server.listen(currentPort, HOST, onListening);
+}
+
+function onListening() {
+  const chosenPort = currentPort;
   if (SESSION_ID && ownEntry) {
+    // Record actual chosen port (may differ from the initial PORT after probe)
+    ownEntry.port = chosenPort;
+    ownEntry.url = 'http://' + HOST + ':' + chosenPort;
     writeRegistryEntry(SESSION_ID, ownEntry);
   }
   // Warm the slow ccusage caches right away.
@@ -1738,5 +1765,29 @@ server.listen(PORT, HOST, () => {
   refreshCcusage('session');
   refreshCcusage('blocks');
   const bound = SESSION_ID ? 'session ' + SESSION_ID.slice(0, 8) : 'UNBOUND (showing shared state)';
-  console.log('dashboard listening on http://' + HOST + ':' + PORT + ' (' + bound + ', company dir: ' + COMPANY_DIR + ')');
+  const url = 'http://' + HOST + ':' + chosenPort;
+  console.log('dashboard listening on ' + url + ' (' + bound + ', company dir: ' + COMPANY_DIR + ')');
+}
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const tried = currentPort;
+    if (currentPort < PORT + PORT_PROBE_MAX) {
+      currentPort++;
+      // Remove old listeners so re-listen is clean
+      server.close(() => { startListening(); });
+    } else {
+      process.stderr.write(
+        'dashboard: port ' + PORT + ' is in use and probing ' + PORT + '+1..' +
+        PORT_PROBE_MAX + ' all failed. Free a port in that range and retry.\n'
+      );
+      process.exit(1);
+    }
+    return;
+  }
+  // Non-EADDRINUSE errors are unexpected - surface them clearly
+  process.stderr.write('dashboard: server error: ' + err.message + '\n');
+  process.exit(1);
 });
+
+startListening();
