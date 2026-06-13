@@ -438,9 +438,11 @@ function buildCompanyState() {
   } catch (_) { /* ignore */ }
   const items = ((criteria && criteria.criteria) || []).map((c) => ({
     id: c.id,
-    description: String(c.description || '').slice(0, 140),
+    // Full description sent; client truncates in collapsed view, wraps in expanded view
+    description: String(c.description || '').slice(0, 500),
     passes: !!c.passes,
-    evidence: !!(c.evidence && String(c.evidence).trim())
+    // Send evidence text (truncated to 400 chars) so expanded view can show it
+    evidence: (c.evidence && String(c.evidence).trim()) ? String(c.evidence).slice(0, 400) : null
   }));
 
   const goal = cachedReadFile(path.join(COMPANY_DIR, 'GOAL.md'));
@@ -558,7 +560,57 @@ function computeContextFill(transcriptFile, overrideModel) {
   return { used, window: contextWindow, fill, threshold, modelId: lastModelId };
 }
 
-// ---------- MUST-FIX 3: org tree driven from live agents primarily ----------
+// ---------- COMPANY.md org chart parser ----------
+// Returns { departments: [{ name, lead, roles: [{ name, isLead }] }] }
+function parseCompanyMd() {
+  // Resolve COMPANY.md: env COMPANY_DIR first, else project cwd, else ~/.company
+  const candidates = [
+    path.join(COMPANY_DIR, 'COMPANY.md'),
+    path.resolve('COMPANY.md'),
+  ];
+  let text = null;
+  for (const p of candidates) {
+    text = cachedReadFile(p);
+    if (text) break;
+  }
+  if (!text) return { departments: [] };
+
+  const departments = [];
+  let currentDept = null;
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    // ## heading = new department
+    if (/^##\s+/.test(line)) {
+      const deptName = line.replace(/^##\s+/, '').trim();
+      currentDept = { name: deptName, lead: null, roles: [] };
+      departments.push(currentDept);
+      continue;
+    }
+    // Bullet line = a role entry (- **Name** - desc or - Name: desc or - Name, desc)
+    if (/^[-*]\s+/.test(line) && currentDept) {
+      const body = line.replace(/^[-*]\s+/, '').replace(/\*\*/g, '');
+      // Role name = text before first comma, dash, or colon
+      const nameMatch = body.match(/^([^,\-:]+)/);
+      if (!nameMatch) continue;
+      let roleName = nameMatch[1].trim();
+      // Strip trailing "Lead" prefix markers like "Lead:"
+      const isExplicitLead = /^lead:/i.test(roleName) || / lead$/i.test(roleName);
+      if (/^lead:/i.test(roleName)) roleName = roleName.replace(/^lead:/i, '').trim();
+      // CEO is always tier-0, skip from dept roles
+      if (/^ceo$/i.test(roleName)) continue;
+      const role = { name: roleName, isLead: isExplicitLead };
+      currentDept.roles.push(role);
+      // First role in dept becomes the lead if none marked explicit
+      if (!currentDept.lead) currentDept.lead = role;
+      if (isExplicitLead && currentDept.lead !== role) currentDept.lead = role;
+    }
+  }
+  // Remove departments with no roles
+  return { departments: departments.filter(d => d.roles.length > 0) };
+}
+
+// ---------- MUST-FIX 3 (revised): org tree from COMPANY.md + live agent overlay ----------
 function getActiveCycleNumber() {
   // Read active cycle from roster header or latest cycle-N-briefing.md
   const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';
@@ -594,21 +646,29 @@ function parseCycleTaskFile(filepath) {
   return tasks;
 }
 
+// Score how well a live agent name matches a COMPANY.md role name (higher = better)
+function roleMatchScore(agentStr, roleName) {
+  const a = agentStr.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim();
+  const r = roleName.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim();
+  if (a === r) return 100;
+  if (a.includes(r) || r.includes(a)) return 60;
+  // word-level overlap score
+  const aw = new Set(a.split(/\s+/).filter(Boolean));
+  const rw = r.split(/\s+/).filter(Boolean);
+  let hits = 0;
+  for (const w of rw) if (aw.has(w) && w.length > 2) hits++;
+  return hits > 0 ? hits * 20 : 0;
+}
+
 function buildOrgTree(projDir, sessionId, liveAgents) {
-  // Tier 0: orchestrator
-  const orchNode = {
-    id: 'orchestrator',
-    tier: 0,
-    label: 'CEO',
-    status: 'active',
-    dept: null
-  };
+  // Tier 0: orchestrator (CEO)
+  const orchNode = { id: 'orchestrator', tier: 0, label: 'CEO', status: 'active', dept: null };
 
   const activeCycle = getActiveCycleNumber();
   const cyclesDir = path.join(COMPANY_DIR, 'cycles');
 
-  // Load enrichment from matching cycle task files (active cycle only)
-  const enrichment = new Map(); // dept -> [{task, employee, surfaces}]
+  // Load enrichment from active cycle task files: dept -> [{task, employee, surfaces}]
+  const enrichment = new Map();
   try {
     const files = fs.readdirSync(cyclesDir);
     for (const f of files) {
@@ -623,97 +683,141 @@ function buildOrgTree(projDir, sessionId, liveAgents) {
     }
   } catch (_) { /* ignore */ }
 
-  // Build dept map from live agents first (MUST-FIX 3: live data drives the tree)
-  const deptMap = new Map(); // dept -> { tasks[], liveAgents[] }
-  for (const agent of liveAgents) {
-    const dept = agent.agentType || 'agent';
-    if (!deptMap.has(dept)) deptMap.set(dept, { tasks: [], liveAgents: [] });
-    deptMap.get(dept).liveAgents.push(agent);
-  }
+  // Load active-roster.md employee names for mapping
+  const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';
 
-  // Add departments from task enrichment that have no live agents
-  for (const [dept, tasks] of enrichment) {
-    if (!deptMap.has(dept)) deptMap.set(dept, { tasks: [], liveAgents: [] });
-    deptMap.get(dept).tasks = tasks;
-  }
+  // Parse COMPANY.md for the canonical org structure
+  const { departments } = parseCompanyMd();
 
   const nodes = [orchNode];
   const edges = [];
 
-  for (const [dept, { tasks, liveAgents: deptAgents }] of deptMap) {
-    const leadId = 'lead-' + dept;
-    nodes.push({
-      id: leadId,
-      tier: 1,
-      label: dept,
-      dept,
-      status: deptAgents.length > 0 ? 'active' : 'idle',
-      liveCount: deptAgents.length
-    });
-    edges.push({ from: 'orchestrator', to: leadId });
+  // Track which live agents have been mapped to named role nodes
+  const mappedAgentIds = new Set();
 
-    // Tier-2: live agents in this dept
-    for (const agent of deptAgents) {
-      const nodeId = 'agent-' + agent.id;
-      // Try to enrich from task file by matching employee name
-      let enrichedTask = null;
-      for (const t of tasks) {
-        const emp = t.employee.toLowerCase();
-        const agentType = (agent.agentType || '').toLowerCase();
-        const desc = (agent.description || '').toLowerCase();
-        if (emp && (agentType.includes(emp) || desc.includes(emp) || emp.includes(agentType))) {
-          enrichedTask = t;
-          break;
-        }
-      }
-      nodes.push({
-        id: nodeId,
-        tier: 2,
-        dept,
-        label: agent.agentType,
-        employee: agent.agentType,
-        task: enrichedTask ? enrichedTask.task : agent.description.slice(0, 80),
-        surfaces: enrichedTask ? enrichedTask.surfaces : null,
-        status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
-        currentAction: agent.description,
-        model: agent.model || null,
-        tokens: agent.tokens || 0,
-        toolCalls: agent.toolCalls || 0,
-        runtimeMs: agent.runtimeMs || null
+  if (departments.length > 0) {
+    // Render the COMPANY.md org chart with live-status overlay
+    for (const dept of departments) {
+      const lead = dept.lead;
+      const leadId = 'dept-' + dept.name.replace(/\s+/g, '-').toLowerCase().slice(0, 30);
+
+      // Map live agents onto this department's roles by name similarity
+      // DEPARTMENT-SCOPED: only use agents whose type/desc matches this dept's role names
+      const deptRoleNames = dept.roles.map(r => r.name);
+      const deptLiveAgents = liveAgents.filter((agent) => {
+        if (mappedAgentIds.has(agent.id)) return false;
+        const agentStr = (agent.agentType || '') + ' ' + (agent.description || '');
+        // Score against any role in this department
+        return deptRoleNames.some(rn => roleMatchScore(agentStr, rn) >= 20);
       });
-      edges.push({ from: leadId, to: nodeId });
+
+      // Find the best-matched live agent per named role
+      const roleAgentMap = new Map(); // roleName -> agent|null
+      for (const role of dept.roles) {
+        let best = null, bestScore = 0;
+        for (const agent of deptLiveAgents) {
+          if (mappedAgentIds.has(agent.id)) continue;
+          const agentStr = (agent.agentType || '') + ' ' + (agent.description || '');
+          const score = roleMatchScore(agentStr, role.name);
+          if (score > bestScore) { best = agent; bestScore = score; }
+        }
+        roleAgentMap.set(role.name, bestScore >= 20 ? best : null);
+        if (best && bestScore >= 20) mappedAgentIds.add(best.id);
+      }
+
+      // Compute lead node status from whether any dept agent is live
+      const anyDeptLive = dept.roles.some(r => roleAgentMap.get(r.name) !== null);
+      const leadAgent = roleAgentMap.get(lead.name);
+      const leadStatus = leadAgent ? (leadAgent.active ? 'active' : 'idle') : (anyDeptLive ? 'active' : 'idle');
+
+      // Tier-1: department lead node
+      nodes.push({
+        id: leadId,
+        tier: 1,
+        label: lead.name,
+        dept: dept.name,
+        status: leadStatus,
+        liveCount: dept.roles.filter(r => roleAgentMap.get(r.name) !== null).length,
+        description: 'Lead of ' + dept.name
+      });
+      // CEO -> dept lead (only CEO connects to leads)
+      edges.push({ from: 'orchestrator', to: leadId });
+
+      // Tier-2: other roles in this department (non-lead roles)
+      for (const role of dept.roles) {
+        if (role === lead) continue; // lead is already tier-1
+        const roleId = leadId + '-' + role.name.replace(/\s+/g, '-').toLowerCase().slice(0, 25);
+        const agent = roleAgentMap.get(role.name);
+        const rStatus = agent ? (agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done') : 'idle';
+        nodes.push({
+          id: roleId,
+          tier: 2,
+          dept: dept.name,
+          label: role.name,
+          employee: role.name,
+          status: rStatus,
+          currentAction: agent ? agent.description : null,
+          model: agent ? (agent.model || null) : null,
+          tokens: agent ? (agent.tokens || 0) : 0,
+          toolCalls: agent ? (agent.toolCalls || 0) : 0,
+          runtimeMs: agent ? (agent.runtimeMs || null) : null
+        });
+        // Dept lead -> role node (dept-scoped: lead never connects to other dept's roles)
+        edges.push({ from: leadId, to: roleId });
+      }
     }
 
-    // Tier-2 from task files with no live counterpart (show as idle)
-    for (const t of tasks) {
-      const hasLive = deptAgents.some((a) => {
-        const emp = t.employee.toLowerCase();
-        const agentType = (a.agentType || '').toLowerCase();
-        return agentType.includes(emp) || emp.includes(agentType);
-      });
-      if (!hasLive) {
-        const nodeId = 'task-' + dept + '-' + t.employee.replace(/\s+/g, '-').slice(0, 20);
+    // Unmapped live agents: show under a "General" node beneath CEO
+    const unmapped = liveAgents.filter(a => !mappedAgentIds.has(a.id));
+    if (unmapped.length > 0) {
+      const generalId = 'dept-general';
+      const alreadyHasGeneral = nodes.some(n => n.id === generalId);
+      if (!alreadyHasGeneral) {
+        nodes.push({ id: generalId, tier: 1, label: 'General', dept: 'General', status: 'active', liveCount: unmapped.length });
+        edges.push({ from: 'orchestrator', to: generalId });
+      }
+      for (const agent of unmapped) {
+        const nodeId = 'agent-' + agent.id;
         nodes.push({
-          id: nodeId,
-          tier: 2,
-          dept,
-          label: t.employee,
-          employee: t.employee,
-          task: t.task,
-          surfaces: t.surfaces,
-          status: 'idle',
-          currentAction: null,
-          model: null,
-          tokens: 0,
-          toolCalls: 0,
-          runtimeMs: null
+          id: nodeId, tier: 2, dept: 'General',
+          label: (agent.agentType || 'agent').slice(0, 20),
+          employee: agent.agentType,
+          status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
+          currentAction: agent.description,
+          model: agent.model || null,
+          tokens: agent.tokens || 0,
+          toolCalls: agent.toolCalls || 0,
+          runtimeMs: agent.runtimeMs || null
+        });
+        edges.push({ from: generalId, to: nodeId });
+      }
+    }
+  } else {
+    // Fallback: generic dept-based tree when COMPANY.md is missing/unreadable
+    const deptMap = new Map();
+    for (const agent of liveAgents) {
+      const dept = agent.agentType || 'agent';
+      if (!deptMap.has(dept)) deptMap.set(dept, []);
+      deptMap.get(dept).push(agent);
+    }
+    for (const [dept, deptAgents] of deptMap) {
+      const leadId = 'lead-' + dept;
+      nodes.push({ id: leadId, tier: 1, label: dept, dept, status: deptAgents.length > 0 ? 'active' : 'idle', liveCount: deptAgents.length });
+      edges.push({ from: 'orchestrator', to: leadId });
+      for (const agent of deptAgents) {
+        const nodeId = 'agent-' + agent.id;
+        nodes.push({
+          id: nodeId, tier: 2, dept, label: agent.agentType, employee: agent.agentType,
+          status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
+          currentAction: agent.description, model: agent.model || null,
+          tokens: agent.tokens || 0, toolCalls: agent.toolCalls || 0, runtimeMs: agent.runtimeMs || null
         });
         edges.push({ from: leadId, to: nodeId });
       }
     }
   }
 
-  const note = 'Leads are logical planners. Only the orchestrator spawns agents; tier-2 nodes are the workers the orchestrator ran.';
+  const note = 'Logically: CEO delegates to dept leads; leads own their team. Physically the orchestrator spawns all agents.';
   return { nodes, edges, note, activeCycle };
 }
 
@@ -1533,6 +1637,20 @@ function setupTreeInteractions() {
   const svg = $('tree');
   const wrap = $('tree-svg-wrap');
 
+  // Zoom floor = reset/natural dimensions (MIN_ZOOM == reset scale; user cannot zoom out past it)
+  function minZoomW() { return parseFloat(svg.dataset.naturalW) || 900; }
+  function minZoomH() { return parseFloat(svg.dataset.naturalH) || 500; }
+
+  function clampToFloor() {
+    // Clamp vbW/vbH to at most the natural (reset) dimensions
+    if (treeView.vbW > minZoomW()) {
+      const cx = treeView.vbX + treeView.vbW / 2;
+      const cy = treeView.vbY + treeView.vbH / 2;
+      treeView.vbW = minZoomW(); treeView.vbH = minZoomH();
+      treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    }
+  }
+
   // Mouse wheel zoom (MUST-FIX 5: set isInteracting to suppress poll re-apply)
   wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -1542,6 +1660,8 @@ function setupTreeInteractions() {
     const cy = treeView.vbY + treeView.vbH / 2;
     treeView.vbW *= factor; treeView.vbH *= factor;
     treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    // Enforce zoom floor: cannot zoom out beyond reset/natural size
+    clampToFloor();
     svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
     saveTreeView();
     clearTimeout(wrap._iTimer);
@@ -1585,12 +1705,15 @@ function setupTreeInteractions() {
     const cx = treeView.vbX + treeView.vbW / 2, cy = treeView.vbY + treeView.vbH / 2;
     treeView.vbW *= 1.25; treeView.vbH *= 1.25;
     treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    // Enforce zoom floor: MIN_ZOOM == reset scale, cannot zoom out past it
+    clampToFloor();
     svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
     saveTreeView();
   });
   $('zoom-reset').addEventListener('click', () => {
-    const nW = parseFloat(svg.dataset.naturalW) || 900;
-    const nH = parseFloat(svg.dataset.naturalH) || 500;
+    // Reset = natural (floor) dimensions; this is also the minimum zoom level
+    const nW = minZoomW();
+    const nH = minZoomH();
     treeView.vbX = 0; treeView.vbY = 0; treeView.vbW = nW; treeView.vbH = nH;
     svg.setAttribute('viewBox', '0 0 ' + nW + ' ' + nH);
     saveTreeView();
@@ -1616,8 +1739,21 @@ function renderFeed(s) {
   }
 }
 
-// Contract 5: compact criteria bar + click-to-expand, module-level expand flag
-let criteriaOpen = false;
+// Per-criterion expand: sessionStorage set of expanded item ids, keyed per session
+function criteriaStorageKey() {
+  return 'critExpanded:' + (_treeSessionId || 'unbound');
+}
+
+function loadCritExpanded() {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(criteriaStorageKey()) || '[]'));
+  } catch (_) { return new Set(); }
+}
+
+function saveCritExpanded(set) {
+  try { sessionStorage.setItem(criteriaStorageKey(), JSON.stringify([...set])); } catch (_) {}
+}
+
 let _lastCriteria = null;
 
 function renderCriteria(s) {
@@ -1636,25 +1772,65 @@ function renderCriteria(s) {
   bar.appendChild(fill);
   root.appendChild(bar);
 
-  const toggle = el('button', 'crit-toggle');
-  toggle.textContent = (criteriaOpen ? 'v hide detail' : '> show detail');
-  toggle.addEventListener('click', () => {
-    criteriaOpen = !criteriaOpen;
-    renderCriteria({ criteria: _lastCriteria });
-  });
-  root.appendChild(toggle);
+  // Per-item collapsible list: each criterion is a short one-line bullet
+  const expanded = loadCritExpanded();
+  const list = el('div');
+  list.style.marginTop = '0.5rem';
 
-  if (criteriaOpen) {
-    const detail = el('div');
-    for (const item of c.items || []) {
-      const row = el('div', 'crit');
-      row.appendChild(el('span', 'dot' + (item.passes ? ' pass' : '')));
-      row.appendChild(el('span', null, item.id + '. ' + item.description));
-      row.appendChild(el('span', 'muted mono', item.evidence ? 'evidence' : ''));
-      detail.appendChild(row);
+  for (const item of c.items || []) {
+    const itemId = String(item.id);
+    const isOpen = expanded.has(itemId);
+
+    const wrap = el('div');
+    wrap.style.borderBottom = '1px solid var(--line)';
+    wrap.style.padding = '0.2rem 0';
+
+    // Collapsed row: dot + number + truncated title + toggle caret
+    const header = el('button');
+    header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;background:none;border:none;cursor:pointer;width:100%;text-align:left;padding:0.25rem 0;font-size:13.5px;';
+    const dot = el('span', 'dot' + (item.passes ? ' pass' : ''));
+    dot.style.flexShrink = '0';
+    header.appendChild(dot);
+    const titleSpan = el('span');
+    titleSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    titleSpan.textContent = itemId + '. ' + item.description;
+    header.appendChild(titleSpan);
+    const caret = el('span', 'muted');
+    caret.style.cssText = 'font-size:11px;flex-shrink:0;padding-left:0.5rem;';
+    caret.textContent = isOpen ? 'v' : '>';
+    header.appendChild(caret);
+    wrap.appendChild(header);
+
+    // Expanded detail: full description + evidence, wrapping freely
+    if (isOpen) {
+      const detail = el('div');
+      detail.style.cssText = 'padding:0.4rem 0 0.5rem 1.3rem;font-size:13px;white-space:normal;word-break:break-word;';
+      const descP = el('p');
+      descP.style.marginBottom = '0.25rem';
+      descP.textContent = item.description;
+      detail.appendChild(descP);
+      if (item.evidence) {
+        const evP = el('p', 'muted mono');
+        evP.style.cssText = 'font-size:12px;white-space:normal;word-break:break-word;';
+        evP.textContent = 'evidence: ' + (typeof item.evidence === 'string' ? item.evidence : JSON.stringify(item.evidence));
+        detail.appendChild(evP);
+      }
+      wrap.appendChild(detail);
     }
-    root.appendChild(detail);
+
+    header.addEventListener('click', () => {
+      // Load fresh from storage so concurrent tabs don't clobber each other
+      const current = loadCritExpanded();
+      if (current.has(itemId)) current.delete(itemId);
+      else current.add(itemId);
+      saveCritExpanded(current);
+      // Re-render only the criteria section, passing cached state
+      if (_lastCriteria) renderCriteria({ criteria: _lastCriteria });
+    });
+
+    list.appendChild(wrap);
   }
+  root.appendChild(list);
 }
 
 function renderCycles(s) {
