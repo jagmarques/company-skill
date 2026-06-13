@@ -6,9 +6,16 @@
 // reasons never name it. criteria.lock pins the id set: deleting a hard
 // criterion blocks instead of unlocking. Staleness is surfaced, never a
 // free pass. A harness force-stop leaves the run visibly failed.
+//
+// External anchor (3d + 4d fix): enforcement state is mirrored to
+// ~/.claude/company-guard-state/<key>/ where key = sha256(realpath(companyDir)).slice(0,16).
+// The external lock is authoritative for criteria.lock; the external owners log is
+// append-only and makes OWNER rewrite-eviction impossible. Degrades gracefully
+// when ~/.claude is unwritable (falls back to .company-only behavior, no crash).
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
 const criteriaPath = path.join(companyDir, 'criteria.json');
@@ -16,9 +23,37 @@ const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
 const ownerPath = path.join(companyDir, 'OWNER');
 
+// External anchor: keyed on sha256(realpath(companyDir)).slice(0,16) so
+// rewriting GOAL.md or criteria.json cannot rotate the key and orphan the anchor.
+function getAnchorDir() {
+  try {
+    const real = fs.realpathSync(companyDir);
+    const key = crypto.createHash('sha256').update(real).digest('hex').slice(0, 16);
+    const home = process.env.HOME || '';
+    return path.join(home, '.claude', 'company-guard-state', key);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Lazily create the anchor dir; returns null if ~/.claude is unwritable (degrade path).
+function ensureAnchorDir(anchorDir) {
+  if (!anchorDir) return null;
+  try {
+    fs.mkdirSync(anchorDir, { recursive: true });
+    return anchorDir;
+  } catch (e) {
+    return null;
+  }
+}
+
+const anchorDir = getAnchorDir();
+
 // Session scoping: only sessions listed in .company/OWNER are gated.
 // Missing or empty OWNER = legacy state, every session gated (fail closed).
 // Manual escape for legacy: ~/.claude/hooks/company-guard-exempt.txt.
+// 4d fix: effective owner set = (.company/OWNER union external owners log).
+// A session once recorded as an owner cannot evict itself by rewriting OWNER.
 let sessionId = null;
 try {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -35,8 +70,37 @@ if (sessionId) {
       .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
     // Garbled OWNER fails closed: only a clean id list frees a foreign session.
     const valid = rawOwners.filter(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
-    if (rawOwners.length > 0 && valid.length === rawOwners.length &&
-        valid.indexOf(sessionId) === -1) process.exit(0);
+    if (rawOwners.length > 0 && valid.length === rawOwners.length) {
+      if (valid.indexOf(sessionId) !== -1) {
+        // Session is in current OWNER - record it to the external owners log (append-only, dedup).
+        const ad = ensureAnchorDir(anchorDir);
+        if (ad) {
+          const ownersLogPath = path.join(ad, 'owners');
+          try {
+            const existing = fs.existsSync(ownersLogPath)
+              ? fs.readFileSync(ownersLogPath, 'utf8').split('\n').map(function (l) { return l.trim(); }).filter(Boolean)
+              : [];
+            if (existing.indexOf(sessionId) === -1) {
+              fs.appendFileSync(ownersLogPath, sessionId + '\n');
+            }
+          } catch (e) {}
+        }
+        // Session is an owner - do NOT exit 0 here; fall through to the criteria check.
+      } else {
+        // Session is not in current OWNER. Check external owners log before treating as foreign.
+        let inExternalOwners = false;
+        if (anchorDir) {
+          try {
+            const ownersLogPath = path.join(anchorDir, 'owners');
+            const extOwners = fs.readFileSync(ownersLogPath, 'utf8')
+              .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+            inExternalOwners = extOwners.indexOf(sessionId) !== -1;
+          } catch (e) {}
+        }
+        // Foreign only if absent from both OWNER and external log.
+        if (!inExternalOwners) process.exit(0);
+      }
+    }
   } catch (e) {}
 }
 
@@ -98,17 +162,44 @@ if (fs.existsSync(criteriaPath)) {
       'for the goal.' + stale);
   }
 
-  // criteria.lock: first sight snapshots ids, removal blocks, additions extend.
+  // criteria.lock: 3d fix - external lock is authoritative.
+  // If the external lock exists, it is the source of truth (rm .company/criteria.lock
+  // becomes a no-op; .company lock is healed from the external copy). If the external
+  // lock is missing this is a genuine first sight.
   const lockPath = path.join(companyDir, 'criteria.lock');
+  const extLockPath = anchorDir ? path.join(anchorDir, 'lock') : null;
   const currentIds = all
     .filter(function (c) { return c && typeof c === 'object' && c.id !== undefined && c.id !== null; })
     .map(function (c) { return String(c.id); });
+
+  // Try to read the external lock first (authoritative).
   let lockedIds = null;
-  try {
-    lockedIds = fs.readFileSync(lockPath, 'utf8')
-      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-  } catch (e) {}
+  if (extLockPath) {
+    try {
+      lockedIds = fs.readFileSync(extLockPath, 'utf8')
+        .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+      if (lockedIds.length === 0) lockedIds = null;
+    } catch (e) {}
+  }
+
+  if (lockedIds !== null) {
+    // External lock exists - heal the .company copy in case it was deleted.
+    try { fs.writeFileSync(lockPath, lockedIds.join('\n') + '\n'); } catch (e) {}
+  } else {
+    // Fall back to .company lock (degrade path when external anchor unavailable).
+    try {
+      const raw = fs.readFileSync(lockPath, 'utf8')
+        .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+      if (raw.length > 0) lockedIds = raw;
+    } catch (e) {}
+  }
+
   if (lockedIds === null) {
+    // Genuine first sight: snapshot to both external and .company.
+    const ad = ensureAnchorDir(anchorDir);
+    if (ad && extLockPath) {
+      try { fs.writeFileSync(extLockPath, currentIds.join('\n') + '\n'); } catch (e) {}
+    }
     try { fs.writeFileSync(lockPath, currentIds.join('\n') + '\n'); } catch (e) {}
   } else {
     const missing = lockedIds.filter(function (id) { return currentIds.indexOf(id) === -1; });
@@ -119,7 +210,13 @@ if (fs.existsSync(criteriaPath)) {
     }
     const added = currentIds.filter(function (id) { return lockedIds.indexOf(id) === -1; });
     if (added.length > 0) {
-      try { fs.writeFileSync(lockPath, lockedIds.concat(added).join('\n') + '\n'); } catch (e) {}
+      const extended = lockedIds.concat(added);
+      // Write extensions to both external and .company.
+      const ad = ensureAnchorDir(anchorDir);
+      if (ad && extLockPath) {
+        try { fs.writeFileSync(extLockPath, extended.join('\n') + '\n'); } catch (e) {}
+      }
+      try { fs.writeFileSync(lockPath, extended.join('\n') + '\n'); } catch (e) {}
     }
   }
 
