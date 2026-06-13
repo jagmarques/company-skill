@@ -148,12 +148,17 @@ try {
   // Attempt JSON parse first (session-scoped format).
   let parsed = null;
   try { parsed = JSON.parse(raw); } catch (e) {}
-  if (parsed && typeof parsed === 'object' && parsed.sessionId === sessionId &&
+  // Both stored and incoming sessionId must be non-empty strings to honor the high-water.
+  // A null on either side means the state is foreign (treat as fresh, block on first fire).
+  if (parsed && typeof parsed === 'object' &&
+      typeof parsed.sessionId === 'string' && parsed.sessionId !== '' &&
+      typeof sessionId === 'string' && sessionId !== '' &&
+      parsed.sessionId === sessionId &&
       typeof parsed.tokens === 'number') {
     // State belongs to the current session: honor it.
     lastFiredTokens = parsed.tokens;
   }
-  // Legacy bare-number OR a different session's state: treat as fresh (lastFiredTokens = -1).
+  // Null sessionId either side, legacy bare-number, or different session: treat as fresh.
 } catch (e) {}
 
 if (lastFiredTokens >= 0) {

@@ -539,6 +539,72 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   check('no criteria.json does not crash context-guard', d, t, 'block');
 }
 
+// --- Null sessionId edge (EDGE B/B2 from critic-pr48.md) ---
+
+// Case 23a: stored sessionId null + incoming session null + 51% -> BLOCK (was the hole).
+// Both sides are null; old code: null===null matched, honored high-water, allowed.
+// Fix: require both sides to be non-empty strings -> null state is foreign -> first fire -> BLOCK.
+{
+  const d = freshDir();
+  // No OWNER file: legacy gate-all (gate every session).
+  fs.mkdirSync(d, { recursive: true });
+  // Write state with sessionId:null at a high token count (simulates the edge).
+  fs.writeFileSync(
+    path.join(d, '.context-guard-state'),
+    JSON.stringify({ sessionId: null, tokens: 675148 })
+  );
+  const t = makeTranscript(d, { model: 'claude-opus-4-8', input_tokens: 510000 });
+  // Pass session_id: null via the override (runHook default would send 'owner-session-1234').
+  // We need to pass null explicitly. Use execFileSync directly.
+  caseNo += 1;
+  const inputObj = { transcript_path: t };
+  // session_id intentionally omitted -> hook parses null -> incoming sessionId is null.
+  try {
+    const out = execFileSync(process.execPath, [HOOK], {
+      env: Object.assign({}, process.env, { COMPANY_DIR: d }),
+      encoding: 'utf8',
+      input: JSON.stringify(inputObj),
+    }).trim();
+    const got = decide(out);
+    if (got === 'block') {
+      console.log('ok: case ' + caseNo + ' null stored + null incoming + 51% BLOCKS (edge B closed)');
+    } else {
+      console.log('FAIL case ' + caseNo + ' (null-null edge B): expected block, got ' + got + ' out=' + out);
+      failures += 1;
+    }
+  } catch (e) {
+    console.log('FAIL case ' + caseNo + ' (null-null edge B): crashed: ' + e.message);
+    failures += 1;
+  }
+}
+
+// Case 23b: same-session non-null de-loop still allows (regression guard for the fix).
+// After a fire with a real string sessionId, a same-session call with fresh artifact -> ALLOW.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-nulledge1');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('null-edge: same-session first fire blocks', d, t, 'block', {
+    session_id: 'owner-session-nulledge1',
+  });
+  const stateFile = path.join(d, '.context-guard-state');
+  writeDebateArtifact(d, 'owner-session-nulledge1', stateFile);
+  check('null-edge: same-session fresh artifact still ALLOWS (de-loop intact)', d, t, 'allow', {
+    session_id: 'owner-session-nulledge1',
+  });
+}
+
+// Case 23c: foreign non-null stored id + different non-null incoming -> BLOCK (original fix).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-nulledge2');
+  writeSessionState(d, 'owner-session-other', 675148);
+  const t = makeTranscript(d, { model: 'claude-opus-4-8', input_tokens: 510000 });
+  check('null-edge: foreign non-null stored id BLOCKS (original fix unbroken)', d, t, 'block', {
+    session_id: 'owner-session-nulledge2',
+  });
+}
+
 // Summary
 if (failures > 0) {
   console.log('CONTEXT-GUARD TESTS FAILED: ' + failures);
