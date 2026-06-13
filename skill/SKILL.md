@@ -242,6 +242,8 @@ Then spawn `company-critic` (the Devil's Advocate) on everything marked passing.
 
 **MERGE GATE:** nothing merges during EXECUTE. A worker's output stops at a draft PR. Only after the reviewer grades the relevant criterion MET on reproduced evidence AND the critic accepts it does the ORCHESTRATOR merge, recording the verdict in the cycle review. Workers never merge, ever. The merge gate reads the PR's Proof of work block against the reviewer's reproduction.
 
+**BRANCH AND WORKTREE HYGIENE (MANDATORY after every merge):** after merging a PR, the orchestrator MUST delete the merged branch with `gh pr merge --delete-branch` (the flag deletes the remote branch atomically with the merge) and remove its worktree with `git worktree remove --force <worktree-path>` followed by `git worktree prune`. A merged branch left on origin and a stale worktree are both bugs. Runs that touch multiple repos MUST apply this to every merged PR, not just the last one.
+
 **ORCHESTRATOR BACKSTOP (anti-displacement, mandatory after EVERY build worker):** after every
 build worker completes, before the reviewer runs, the orchestrator MUST verify two things: (a) the
 draft PR exists (`gh pr view <n> --json number,isDraft` returns isDraft:true), and (b) the findings
@@ -276,6 +278,8 @@ The digest also: (a) appends any FAILED -> USE INSTEAD or INEFFICIENT -> FASTER 
 
 Do not try to run `/compact` yourself. It is a user command, not a tool. Context pressure is handled by the PreCompact and SessionStart hooks plus Restart mode.
 
+**CYCLE CLOSE HYGIENE (MANDATORY):** at the end of every COMPRESS phase, the orchestrator MUST run `node <skill-scripts-dir>/cleanup.js` to prune any remaining merged branches and stale worktrees. A run MUST NOT end with leftover merged branches or orphaned worktrees. Run with `--dry-run` first to see what would be removed, then without to apply.
+
 ## After Done
 
 Write STATUS.md, giving its prose a /humanizer pass (the tables and evidence lines stay verbatim). STATUS.md includes a per-cycle cost table built from `cycles/cycle-*-cost.json` (tokens first, USD where priced). Then update `.company/playbook.md`:
@@ -295,6 +299,8 @@ Playbook updates are incremental deltas only: append, or single-entry merge. Bef
 Every WORKED, FAILED, and FIRE line cites the cycle artifact that proves it. The playbook is the ONLY self-improvement file. It accumulates across sessions. It is pasted into lead prompts before every THINK phase. One file, all lessons. Group entries under bracketed topic headings (## [debugging], ## [outreach]) once it grows, so leads can pull targeted history with a grep instead of the whole tail.
 
 As CEO, update COMPANY.md: tag `[inactive]` on zero-contribution roles, `[priority]` on top performers, add any hired roles.
+
+**After Done hygiene (MANDATORY):** run `node <skill-scripts-dir>/cleanup.js` as the final action before declaring the goal complete. This prunes any merged branches and stale worktrees left by the run. The goal is not done until the repo is clean.
 
 ## Built-In Roles (always exist)
 
