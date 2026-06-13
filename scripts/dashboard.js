@@ -2048,7 +2048,7 @@ function renderCriteria(s) {
     dot.style.flexShrink = '0';
     header.appendChild(dot);
     const titleSpan = el('span');
-    titleSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    titleSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
     titleSpan.textContent = itemId + '. ' + item.description;
     header.appendChild(titleSpan);
     const caret = el('span', 'muted');
