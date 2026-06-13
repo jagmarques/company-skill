@@ -1053,8 +1053,8 @@ function buildState() {
 
   const activeAgents = agents.filter((a) => a.active);
 
-  // MUST-FIX 3: org tree driven from live agents
-  const org = buildOrgTree(orchDir || projectDir(), resolvedSessionId || '', agents);
+  // Org tree: only active agents appear as live nodes; finished agents are excluded.
+  const org = buildOrgTree(orchDir || projectDir(), resolvedSessionId || '', activeAgents);
 
   refreshRegistryLastSeen();
 
