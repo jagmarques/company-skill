@@ -110,6 +110,16 @@ Leads route tasks to installed skills (/review, /investigate, /qa, /ship, /brows
 
 The prompt is never hand-written from memory: a Source-Verifier, a Devil's Advocate, and a Completeness pass re-derive every SHA, PR, and CI claim live before it emits, and unverifiable lines are marked UNVERIFIED. Before emitting, the restart quiesces every background agent and preserves real work as draft PRs, because `/clear` orphans live sub-agents. At compaction the PreCompact hook snapshots state and the SessionStart hook injects the restart instruction, the one harness-reliable trigger. The 50 percent self-trigger is best-effort, so treat a typed `/company restart` as the dependable control.
 
+## Dashboard
+
+A zero-dependency localhost dashboard shows live token usage per model, approximate price saved by tiering and caching, active agents, the company hierarchy, the spawn and finish feed, criteria progress, and cycle plus compaction stats.
+
+```bash
+node scripts/dashboard.js [--port 7177] [--company-dir PATH]
+```
+
+Open http://127.0.0.1:7177. The page polls every 3 seconds. Local only. Reads files on this machine, binds 127.0.0.1, sends nothing anywhere.
+
 ## Development
 
 `bash scripts/check.sh` parses every hook and installer, validates frontmatter, greps for content that must never ship, and executes both test suites. CI runs the same script on every pull request.
