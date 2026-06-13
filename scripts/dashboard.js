@@ -1297,7 +1297,7 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
         <button class="tree-btn" id="zoom-in">+</button>
         <button class="tree-btn" id="zoom-out">-</button>
         <button class="tree-btn" id="zoom-reset">reset</button>
-        <button class="tree-btn" id="tree-fullscreen">fullscreen</button>
+        <button class="tree-btn" id="tree-fullscreen" aria-label="Expand" title="Expand"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="1,5 1,1 5,1"/><polyline points="9,1 13,1 13,5"/><polyline points="13,9 13,13 9,13"/><polyline points="5,13 1,13 1,9"/></svg></button>
       </div>
     </div>
     <div class="tree-container" id="tree-container">
@@ -1945,6 +1945,17 @@ function setupTreeInteractions() {
     const card = $('tree-card');
     if (!document.fullscreenElement) card.requestFullscreen().catch(() => {});
     else document.exitFullscreen().catch(() => {});
+  });
+  // SVG icons for expand (two arrows out) and contract (two arrows in)
+  const ICON_EXPAND = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="1,5 1,1 5,1"/><polyline points="9,1 13,1 13,5"/><polyline points="13,9 13,13 9,13"/><polyline points="5,13 1,13 1,9"/></svg>';
+  const ICON_CONTRACT = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="5,1 5,5 1,5"/><polyline points="13,5 9,5 9,1"/><polyline points="9,13 9,9 13,9"/><polyline points="1,9 5,9 5,13"/></svg>';
+  document.addEventListener('fullscreenchange', () => {
+    const btn = $('tree-fullscreen');
+    if (!btn) return;
+    const active = !!document.fullscreenElement;
+    btn.innerHTML = active ? ICON_CONTRACT : ICON_EXPAND;
+    btn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Expand');
+    btn.setAttribute('title', active ? 'Exit fullscreen' : 'Expand');
   });
 }
 
