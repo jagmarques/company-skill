@@ -1404,8 +1404,8 @@ function renderHeader(s) {
     const su = t.session && t.session.usage;
     add('session cost', su ? fmtUsd(su.cost) : '?', su ? fmtTok(su.total) + ' tokens' : 'session ' + (t.session && t.session.id || '?'));
     if (s.savings && s.savings.tieringSaved !== null) {
-      add('saved by model tiering', fmtUsd(s.savings.tieringSaved) + (s.savings.estimated ? ' est.' : ''), 'vs all-' + shortModel(s.savings.topTierModel) + ' (current top tier)');
-      add('saved by prompt caching', fmtUsd(s.savings.cacheSaved) + (s.savings.estimated ? ' est.' : ''), 'cache reads vs full input price');
+      add('saved by model tiering', fmtUsd(s.savings.tieringSaved) + (s.savings.estimated ? ' est.' : ''), 'approx - vs all-' + shortModel(s.savings.topTierModel) + ' (current top tier)');
+      add('saved by prompt caching', fmtUsd(s.savings.cacheSaved) + (s.savings.estimated ? ' est.' : ''), 'approx - cache reads vs full input price');
     }
   }
   const bar = $('splitbar'), legend = $('legend');
