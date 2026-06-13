@@ -977,14 +977,15 @@ tr:last-child td { border-bottom: none; }
 .feed .kind { font-weight: 600; width: 3.5rem; flex-shrink: 0; }
 .feed .kind.spawn { color: var(--cyan); }
 .feed .kind.finish { color: var(--accent); }
-.ctx-gauge-wrap { position: relative; height: 8px; border-radius: var(--radius-pill); overflow: visible; background: var(--hover); margin: 0.5rem 0 1.5rem; }
+.ctx-card { margin-top: 2.5rem; }
+.ctx-gauge-wrap { position: relative; height: 10px; border-radius: var(--radius-pill); overflow: visible; background: var(--hover); margin: 1.25rem 0 2rem; }
 .ctx-gauge-bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: var(--radius-pill); transition: width 0.3s; }
 .ctx-gauge-bar.green { background: var(--accent); }
 .ctx-gauge-bar.amber { background: #d4a017; }
 .ctx-gauge-bar.red { background: var(--red); }
-.ctx-tick { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--red); border-radius: 1px; }
-.ctx-tick-label { position: absolute; top: 14px; font-size: 11px; color: var(--red); white-space: nowrap; transform: translateX(-50%); font-family: var(--font-mono); }
-.ctx-row { display: flex; align-items: baseline; gap: 1rem; margin-top: 0.25rem; }
+.ctx-tick { position: absolute; top: -4px; width: 2px; height: 18px; background: var(--red); border-radius: 1px; }
+.ctx-tick-label { position: absolute; top: 17px; font-size: 11px; color: var(--red); white-space: nowrap; transform: translateX(-50%); font-family: var(--font-mono); }
+.ctx-row { display: flex; align-items: baseline; gap: 1rem; margin-top: 0.5rem; }
 .ctx-pct { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
 .ctx-pct.green { color: var(--accent); }
 .ctx-pct.amber { color: var(--amber); }
@@ -1035,7 +1036,7 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
     <div class="caveat" id="caveat"></div>
   </section>
 
-  <div class="card">
+  <div class="card ctx-card">
     <h2>Context fill</h2>
     <div id="ctx-fill"></div>
   </div>
@@ -1078,7 +1079,7 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
 
   <div class="card">
     <h2>Cycles and memory</h2>
-    <div class="kv" id="cycles"></div>
+    <div id="cycles"></div>
   </div>
 
   <footer>
@@ -1660,18 +1661,29 @@ function renderCycles(s) {
   const root = $('cycles');
   root.replaceChildren();
   const c = s.cycles || {};
-  const add = (label, value) => {
-    const d = el('div');
-    d.appendChild(el('span', null, label));
-    d.appendChild(el('b', null, value));
-    root.appendChild(d);
-  };
-  add('cycle dirs', String(c.cycleDirs ?? '?'));
-  add('briefings', (c.briefingCount ?? '?') + ' (' + fmtBytes(c.briefingBytes) + ')');
-  add('playbook', fmtBytes(c.playbookBytes) + (c.playbookGrowthBytes ? ' (+' + fmtBytes(c.playbookGrowthBytes) + ')' : ''));
-  add('active tasks', fmtBytes(c.activeTasksBytes));
-  add('last compaction', c.lastCompaction ? new Date(c.lastCompaction).toLocaleString() : 'none seen');
-  add('compactions observed', String(c.compactionsObserved ?? 0));
+  const table = el('table', 'center');
+  const thead = el('thead');
+  const hr = el('tr');
+  ['metric', 'value'].forEach((h) => hr.appendChild(el('th', null, h)));
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = el('tbody');
+  const rows = [
+    ['cycle dirs', String(c.cycleDirs ?? '?')],
+    ['briefings', (c.briefingCount ?? '?') + ' (' + fmtBytes(c.briefingBytes) + ')'],
+    ['playbook', fmtBytes(c.playbookBytes) + (c.playbookGrowthBytes ? ' (+' + fmtBytes(c.playbookGrowthBytes) + ')' : '')],
+    ['active tasks', fmtBytes(c.activeTasksBytes)],
+    ['last compaction', c.lastCompaction ? new Date(c.lastCompaction).toLocaleString() : 'none seen'],
+    ['compactions observed', String(c.compactionsObserved ?? 0)],
+  ];
+  for (const [label, value] of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'muted', label));
+    tr.appendChild(el('td', 'mono', value));
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  root.appendChild(table);
 }
 
 function renderBurn(s) {
