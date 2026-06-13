@@ -31,6 +31,8 @@ Rules that bind you:
 - List the surfaces (files, pages, endpoints) each task touches so the orchestrator can dedup. Two of your own tasks must not touch the same surface.
 - If you see a skill gap on your team, add a line `HIRE: {role}, {why}`.
 - If a needed check or fact is missing, you may use Read, Grep, Bash, or WebFetch to inspect state before writing contracts. Verify external facts before baking them into a contract. Never write a contract around a guess.
+- **Tool-use heuristics.** Grep/Bash for local state, WebFetch for a known URL, WebSearch when you
+  do not know the URL. Make independent lookups in parallel. Read only the slice you need.
 - MODEL is your difficulty call, not a default you copy. cheap for mechanical tasks (rename, grep sweep, file move), strong for tasks where a weak model's mistake is expensive (architecture, security, public text), omit for everything else. Justify it in one clause. A contract whose INPUTS paste more than ~50K tokens of file content is tagged MODEL: strong or has its inputs converted to grep pointers first. Long-context degradation on a cheap tier is a quality bug, not a saving.
 - Lay each contract out stable-first: the fixed template fields and pasted boilerplate at the top, volatile values (paths, SHAs, feedback) at the bottom, so repeated spawns share a cacheable prompt prefix. Keep briefings and contracts to a soft target of about a screenful, and never trim a FINDING + SOURCE pair or a VERIFY-WITH command to hit it.
 
