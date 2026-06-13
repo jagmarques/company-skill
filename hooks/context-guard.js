@@ -133,6 +133,29 @@ const fill = used / contextWindow;
 
 if (fill < threshold) process.exit(0);
 
+// Per-session toggle: read .company/context-guard-config.json for this session.
+// Shape: { "sessions": { "<id>": { "enforceRestart": true|false } } }
+// Default (no file, no entry, parse error) = enforceRestart: true (safe default).
+// If enforceRestart === false for this session, skip the hard block entirely.
+// The fill % is still computed above for advisory purposes.
+if (sessionId) {
+  const cfgPath = path.join(companyDir, 'context-guard-config.json');
+  try {
+    const cfgRaw = fs.readFileSync(cfgPath, 'utf8');
+    const cfg = JSON.parse(cfgRaw);
+    if (cfg && typeof cfg === 'object' &&
+        cfg.sessions && typeof cfg.sessions === 'object' &&
+        cfg.sessions[sessionId] && typeof cfg.sessions[sessionId] === 'object' &&
+        cfg.sessions[sessionId].enforceRestart === false) {
+      // Toggle is OFF: allow through without blocking
+      process.exit(0);
+    }
+    // Any other value (true, missing, or unknown) falls through to block
+  } catch (e) {
+    // File missing or parse error: treat as enforceRestart=true (safe default)
+  }
+}
+
 // Fill is at or above threshold. Check the de-loop state file before blocking.
 // De-loop state is SESSION-SCOPED: stored as JSON { "sessionId": "<id>", "tokens": <n> }.
 // A state file from a different session (or a legacy bare-number file) is treated as

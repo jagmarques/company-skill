@@ -605,6 +605,65 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   });
 }
 
+// --- Per-session enforceRestart toggle ---
+
+// Case T1: at 60%, no config file -> BLOCK (default enforce=true).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-toggle1');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('toggle: no config file BLOCKS (default enforce=true)', d, t, 'block', {
+    session_id: 'owner-session-toggle1',
+  });
+}
+
+// Case T2: at 60%, config has enforceRestart:false for this session -> ALLOW.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-toggle2');
+  const cfg = { sessions: { 'owner-session-toggle2': { enforceRestart: false } } };
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), JSON.stringify(cfg));
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('toggle: enforceRestart:false ALLOWS at 60%', d, t, 'allow', {
+    session_id: 'owner-session-toggle2',
+  });
+}
+
+// Case T3: at 60%, config has enforceRestart:true explicitly -> BLOCK.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-toggle3');
+  const cfg = { sessions: { 'owner-session-toggle3': { enforceRestart: true } } };
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), JSON.stringify(cfg));
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('toggle: enforceRestart:true BLOCKS at 60%', d, t, 'block', {
+    session_id: 'owner-session-toggle3',
+  });
+}
+
+// Case T4: malformed config (invalid JSON) -> BLOCK (fail-safe, treat as enforce=true).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-toggle4');
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), 'not valid json {{{');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('toggle: malformed config BLOCKS (fail-safe enforce=true)', d, t, 'block', {
+    session_id: 'owner-session-toggle4',
+  });
+}
+
+// Case T5: config sets enforceRestart:false for a DIFFERENT session; this session -> BLOCK.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-toggle5');
+  const cfg = { sessions: { 'some-other-session': { enforceRestart: false } } };
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), JSON.stringify(cfg));
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('toggle: other session OFF, this session BLOCKS (scoped correctly)', d, t, 'block', {
+    session_id: 'owner-session-toggle5',
+  });
+}
+
 // Summary
 if (failures > 0) {
   console.log('CONTEXT-GUARD TESTS FAILED: ' + failures);
