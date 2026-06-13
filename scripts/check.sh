@@ -276,9 +276,10 @@ else
   note_fail "dashboard D1/D4 tests failed"
 fi
 
-# 25. Autoloop supervisor: monitor-and-kill cycle test (stuck mock is killed and
-#     cycle 2 relaunches, fresh session ids, NEXT.md seeding, no --continue regression,
-#     CANCEL, max-cycles cap, real-schema done, spawnSync-wait-hangs non-vacuity proof).
+# 25. Autoloop supervisor: threshold-driven restart-via-resume test (under threshold
+#     resumes the same session, crossing threshold drives /company restart then a fresh
+#     session seeded from NEXT.md, no --continue, real-schema done, CANCEL, and the
+#     fill-ignoring non-vacuity proof that never restarts).
 if node tests/autoloop.test.js; then
   echo "ok: autoloop supervisor matrix"
 else

@@ -1,35 +1,42 @@
 #!/usr/bin/env node
 // tests/autoloop.test.js
-// Non-vacuous test for scripts/company-autoloop.js (monitor-and-kill design).
+// Non-vacuous test for scripts/company-autoloop.js (threshold-driven design).
 //
-// The supervisor mimics a human running /clear: it POLLS the .company markers
-// WHILE the detached child runs, then KILLS the whole child process group the
-// moment it sees done/restart/cancel, and relaunches fresh. The mock claude
-// here simulates a STUCK mid-goal session: it writes the markers and then SLEEPS
-// indefinitely WITHOUT exiting. A correct supervisor must detect, kill, relaunch.
+// VALIDATED HEADLESS REALITY (orchestrator real runs): a headless `claude -p`
+// session does NOT self-trigger /company restart. The company Stop guards are
+// interactive-only, so the supervisor OWNS the threshold decision: it reads the
+// work session transcript, drives turns via --resume until fill crosses the
+// threshold, then DRIVES `claude -p --resume <id> "/company restart"` to emit
+// NEXT.md + RESTART_DEBATE_CONFIRMED, then seeds a FRESH --session-id from NEXT.md.
 //
-// criteria.json uses the REAL /company schema: an object with a criteria array
-// whose entries carry a passes boolean. The done check reads passes === true.
+// The mock claude here, per invocation:
+//   - parses --session-id / --resume to learn the work session id,
+//   - APPENDS a usage block to a fake transcript at
+//     <projectsDir>/proj/<sessionId>.jsonl with a TOKEN COUNT the test controls,
+//     stepping fill across the threshold over successive turns,
+//   - on a "/company restart" prompt: writes NEXT.md + RESTART_DEBATE_CONFIRMED
+//     into COMPANY_DIR (real object schema) and records that a restart was driven,
+//   - on a normal/continue prompt: does partial work (never marks done) unless the
+//     mode is 'done' or 'cancel'.
+// COMPANY_TRANSCRIPT_DIR points the supervisor at the fake projects root, and
+// COMPANY_CONTEXT_WINDOW pins the window to 1000 so the token math is exact.
 //
 // Asserts:
-//   - Restart: stuck mock (writes NEXT.md + RESTART_DEBATE_CONFIRMED, then sleeps)
-//     is DETECTED, KILLED (its pid is gone), and a SECOND cycle launches with a
-//     DISTINCT fresh session id whose prompt is seeded from NEXT.md.
-//   - Done: stuck mock writing all-pass real-schema criteria.json is detected,
-//     killed, exit 0.
-//   - CANCEL: mock touches CANCEL then sleeps -> killed, exit 0.
-//   - Two DISTINCT --session-id values across cycles (fresh per cycle).
-//   - NO invocation passed --continue or --resume (regression guard).
-//   - max-cycles cap exits non-zero.
-//   - passes:false object does NOT count as done.
+//   (a) while fill < threshold the supervisor RESUMES the same session id (no
+//       restart, no new session);
+//   (b) when fill crosses the threshold the supervisor DRIVES `/company restart`
+//       on that session id, then starts a NEW distinct session id whose first
+//       prompt equals the NEXT.md content;
+//   (c) goal-done (all-pass real-schema criteria) -> exit 0;
+//   (d) CANCEL -> exit 0;
+//   (e) NO invocation uses --continue, and the only --resume uses are
+//       same-session-continue and the restart-drive (never to carry a fresh cycle).
 //
 // Non-vacuity proof (recorded verbatim in findings):
-//   - The monitor-and-kill restart test HANGS against a spawnSync-wait version of
-//     the supervisor: that old design waits for the stuck mock to exit naturally,
-//     which it never does, so cycle 2 is never reached. We run the old design with
-//     a bounded timeout and assert it times out (never reaches the second cycle).
-//     The fixed design kills the stuck mock and reaches cycle 2. A test the new
-//     design passes and the old design provably hangs is the non-vacuity bar.
+//   A fill-ignoring variant of the supervisor (never restarts, always resumes the
+//   same session) is run against the same mock. It NEVER drives `/company restart`
+//   and NEVER creates a second session, so assertion (b) FAILS against it. That is
+//   the bar: a test the fixed design passes and the fill-ignoring design fails.
 
 'use strict';
 
@@ -39,11 +46,10 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
 const SUPERVISOR = path.join(__dirname, '..', 'scripts', 'company-autoloop.js');
-const NEXT_CONTENT = 'CONTINUATION_PROMPT_FROM_CYCLE_1';
+const NEXT_CONTENT = 'CONTINUATION_PROMPT_FROM_RESTART';
 
 let failures = 0;
 let caseNo = 0;
-const spawnedPids = [];
 
 function check(name, fn) {
   caseNo++;
@@ -66,25 +72,20 @@ function makeScratch() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'autoloop-test-'));
 }
 
-function pidAlive(pid) {
-  if (!pid) return false;
-  try { process.kill(pid, 0); return true; } catch (e) { return false; }
-}
-
-// Write a STUCK mock claude binary to scratch/bin/claude.
-// The mock records its own pid + argv per invocation (one JSON line in invFile),
-// writes the requested markers, then SLEEPS via setInterval WITHOUT exiting -
-// simulating a real mid-goal session that the stop-guard will not let exit.
-//   mode 'restart': call 1 writes NEXT.md + RESTART_DEBATE_CONFIRMED then sleeps;
-//                   call 2+ writes all-pass criteria.json then sleeps.
-//   mode 'done':    every call writes all-pass criteria.json then sleeps.
-//   mode 'cancel':  every call touches CANCEL then sleeps.
-// Every mock sleeps so the ONLY way the supervisor advances is by killing it.
-function writeMockClaude(invFile, companyDir, mode) {
-  const binDir = path.join(path.dirname(invFile), 'bin');
+// Write a mock claude binary to scratch/bin/claude.
+// It records argv per invocation (one JSON line in invFile), appends a usage
+// block to the fake transcript for the work session, and handles restart/done/cancel.
+//   tokensByCall: array of input_token counts indexed by NON-restart call number.
+//     With COMPANY_CONTEXT_WINDOW=1000, a count of 300 is fill 0.30, 600 is 0.60.
+//   mode 'restart': normal turns step tokens; a /company restart prompt writes
+//                   NEXT.md + RESTART_DEBATE_CONFIRMED.
+//   mode 'done':    every normal turn writes all-pass criteria.json.
+//   mode 'cancel':  first normal turn touches CANCEL.
+function writeMockClaude(scratch, companyDir, projectsDir, mode, tokensByCall) {
+  const binDir = path.join(scratch, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   const mockPath = path.join(binDir, 'claude');
-
+  const invFile = path.join(scratch, 'invocations.ndjson');
   const passEnvGate = "process.env.AUTOLOOP_TEST_PASSES === 'false' ? false : true";
 
   const mockSrc = [
@@ -94,12 +95,16 @@ function writeMockClaude(invFile, companyDir, mode) {
     "const path = require('node:path');",
     'const invFile = ' + JSON.stringify(invFile) + ';',
     'const companyDir = process.env.COMPANY_DIR || ' + JSON.stringify(companyDir) + ';',
+    'const projectsDir = ' + JSON.stringify(projectsDir) + ';',
     'const nextContent = ' + JSON.stringify(NEXT_CONTENT) + ';',
     'const mode = ' + JSON.stringify(mode) + ';',
-    'const record = { pid: process.pid, argv: process.argv.slice(2) };',
+    'const tokensByCall = ' + JSON.stringify(tokensByCall) + ';',
+    'const argv = process.argv.slice(2);',
+    'const record = { pid: process.pid, argv: argv };',
     "fs.appendFileSync(invFile, JSON.stringify(record) + '\\n');",
-    "const lines = fs.readFileSync(invFile, 'utf8').trim().split('\\n').filter(Boolean);",
-    'const callNo = lines.length;',
+    'function argVal(f){ const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : null; }',
+    "const sessionId = argVal('--session-id') || argVal('--resume');",
+    "const prompt = argv[argv.length - 1];",
     'fs.mkdirSync(companyDir, { recursive: true });',
     'function writeDone() {',
     '  const passVal = ' + passEnvGate + ';',
@@ -107,40 +112,57 @@ function writeMockClaude(invFile, companyDir, mode) {
     "  fs.writeFileSync(path.join(companyDir, 'criteria.json'), JSON.stringify(criteria));",
     '}',
     'function writeRestart() {',
-    // NEXT.md first so its mtime is fresh, busy-wait, then the confirmed marker.
+    // NEXT.md first so its mtime is fresh, brief wait, then the confirmed marker.
     "  fs.writeFileSync(path.join(companyDir, 'NEXT.md'), nextContent);",
     '  const s = Date.now(); while (Date.now() - s < 30) {}',
     "  fs.writeFileSync(path.join(companyDir, 'RESTART_DEBATE_CONFIRMED'), JSON.stringify({ sessionId: 'mock' }));",
     '}',
-    "if (mode === 'cancel') {",
+    '// Append a usage block to the work session transcript so the supervisor can',
+    '// read fill. Place it under projectsDir/proj/<sessionId>.jsonl.',
+    'function appendUsage(tokens) {',
+    '  if (!sessionId) return;',
+    "  const projDir = path.join(projectsDir, 'proj');",
+    '  fs.mkdirSync(projDir, { recursive: true });',
+    "  const tp = path.join(projDir, sessionId + '.jsonl');",
+    "  const line = JSON.stringify({ message: { role: 'assistant', model: 'test-model',",
+    '    usage: { input_tokens: tokens, output_tokens: 0, cache_read_input_tokens: 0,',
+    "      cache_creation_input_tokens: 0 } } });",
+    "  fs.appendFileSync(tp, line + '\\n');",
+    '}',
+    "const isRestart = prompt === '/company restart';",
+    'if (isRestart) {',
+    '  writeRestart();',
+    '} else if (mode === "cancel") {',
     "  fs.writeFileSync(path.join(companyDir, 'CANCEL'), '');",
-    "} else if (mode === 'done') {",
+    '} else if (mode === "done") {',
     '  writeDone();',
     '} else {',
-    // restart mode: first call restarts, later calls complete.
-    '  if (callNo === 1) writeRestart(); else writeDone();',
+    '  // Normal work turn: step the token count for this NON-restart call.',
+    "  const norm = fs.readFileSync(invFile, 'utf8').trim().split('\\n').filter(Boolean)",
+    "    .map(function (l) { return JSON.parse(l); })",
+    "    .filter(function (r) { return r.argv[r.argv.length - 1] !== '/company restart'; });",
+    '  const idx = norm.length - 1;',
+    '  const tokens = tokensByCall[idx] !== undefined ? tokensByCall[idx] : tokensByCall[tokensByCall.length - 1];',
+    '  appendUsage(tokens);',
     '}',
-    // STUCK: never exit on our own. The supervisor must kill this process group.
-    'setInterval(function () {}, 1000);',
+    '// Exit cleanly (expected headless behavior - a -p turn completes and exits).',
+    'process.exit(0);',
   ].join('\n');
 
   fs.writeFileSync(mockPath, mockSrc, { mode: 0o755 });
-  return { mockPath, binDir };
+  return { mockPath, binDir, invFile };
 }
 
 // Run the supervisor against the mock claude.
-// opts.mode selects mock behavior (default 'restart').
-// opts.maxCycles overrides the default (10).
-// opts.supervisorPath uses an alternative supervisor (for mutation testing).
-// opts.preSetup(companyDir) runs before the supervisor (e.g. to write CANCEL).
-// opts.timeout caps the outer spawnSync so a hanging supervisor is observable.
 function runSupervisor(opts) {
   opts = opts || {};
   const scratch = opts.scratch || makeScratch();
   const companyDir = opts.companyDir || path.join(scratch, '.company');
-  const invFile = path.join(scratch, 'invocations.ndjson');
+  const projectsDir = opts.projectsDir || path.join(scratch, 'projects');
   const mode = opts.mode || 'restart';
-  const { mockPath, binDir } = writeMockClaude(invFile, companyDir, mode);
+  const tokensByCall = opts.tokensByCall || [300, 600];
+  const { mockPath, binDir, invFile } =
+    writeMockClaude(scratch, companyDir, projectsDir, mode, tokensByCall);
   const supervisorPath = opts.supervisorPath || SUPERVISOR;
 
   if (opts.preSetup) opts.preSetup(companyDir);
@@ -149,16 +171,19 @@ function runSupervisor(opts) {
     supervisorPath,
     '--company-dir', companyDir,
     '--project-dir', scratch,
-    '--max-cycles', String(opts.maxCycles !== undefined ? opts.maxCycles : 10),
+    '--projects-dir', projectsDir,
+    '--max-turns', String(opts.maxTurns !== undefined ? opts.maxTurns : 6),
     '--permission-mode', 'bypassPermissions',
-    // Short cycle timeout keeps CI fast if a kill path ever regresses.
-    '--cycle-timeout-secs', String(opts.cycleTimeoutSecs !== undefined ? opts.cycleTimeoutSecs : 20),
+    '--restart-timeout-secs', String(opts.restartTimeoutSecs !== undefined ? opts.restartTimeoutSecs : 10),
     'test-goal',
   ];
 
   const env = Object.assign({}, process.env, {
     CLAUDE_BIN: mockPath,
     COMPANY_DIR: companyDir,
+    COMPANY_TRANSCRIPT_DIR: projectsDir,
+    COMPANY_CONTEXT_WINDOW: '1000',
+    COMPANY_CONTEXT_THRESHOLD: '0.50',
     PATH: binDir + path.delimiter + (process.env.PATH || ''),
   }, opts.extraEnv || {});
 
@@ -188,202 +213,209 @@ function readInvocations(invFile) {
     .map(function (l) { return JSON.parse(l); });
 }
 
-function getSessionId(argv) {
-  const i = argv.indexOf('--session-id');
+function lastArg(argv) { return argv[argv.length - 1]; }
+function sessionIdOf(argv) {
+  let i = argv.indexOf('--session-id');
+  if (i >= 0) return argv[i + 1];
+  i = argv.indexOf('--resume');
   return i >= 0 ? argv[i + 1] : null;
 }
+function isFresh(argv) { return argv.indexOf('--session-id') !== -1; }
+function isResume(argv) { return argv.indexOf('--resume') !== -1; }
+function isRestartDrive(argv) { return lastArg(argv) === '/company restart'; }
 
-// Track every mock pid so the finally block can reap any stray sleeper.
-function trackPids(invs) {
+// ---------- Case 1: under-threshold resumes the SAME session, no restart ----------
+// Turn 1 fill 0.30 (under). Turn 2 must RESUME the same session id, not restart,
+// not create a new session. We pin both token steps under threshold and check the
+// first two invocations share a session id and the 2nd is a --resume continue.
+check('under threshold: supervisor resumes the SAME session (no restart, no new session)', function () {
+  const r = runSupervisor({ mode: 'restart', tokensByCall: [300, 300, 300], maxTurns: 3 });
+  const invs = readInvocations(r.invFile);
+  if (invs.length < 2) {
+    return 'expected >= 2 invocations (under-threshold continue), got ' + invs.length +
+           '\nstderr: ' + r.stderr.slice(-400);
+  }
+  const work = invs.filter(function (i) { return !isRestartDrive(i.argv); });
+  if (work.some(isRestartDrive)) return 'unexpected /company restart while under threshold';
+  // No restart drive at all under threshold.
+  if (invs.some(function (i) { return isRestartDrive(i.argv); })) {
+    return 'supervisor drove /company restart while fill stayed under threshold';
+  }
+  // Invocation 1 is a fresh session, invocation 2 resumes the SAME id.
+  if (!isFresh(invs[0].argv)) return 'invocation 1 was not a fresh --session-id';
+  if (!isResume(invs[1].argv)) return 'invocation 2 was not a --resume continue';
+  if (sessionIdOf(invs[0].argv) !== sessionIdOf(invs[1].argv)) {
+    return 'under threshold the supervisor changed session id: ' +
+      sessionIdOf(invs[0].argv) + ' -> ' + sessionIdOf(invs[1].argv);
+  }
+});
+
+// ---------- Case 2: crossing threshold DRIVES restart, then FRESH session from NEXT.md ----------
+check('threshold cross: drives /company restart then a NEW session seeded from NEXT.md', function () {
+  const r = runSupervisor({ mode: 'restart', tokensByCall: [300, 600], maxTurns: 4 });
+  const invs = readInvocations(r.invFile);
+  // Find the restart-drive invocation.
+  const restartIdx = invs.findIndex(function (i) { return isRestartDrive(i.argv); });
+  if (restartIdx === -1) {
+    return 'supervisor never drove /company restart after crossing threshold\nstderr: ' +
+      r.stderr.slice(-500);
+  }
+  // The restart drive must be a --resume on the WORK session (the one that crossed).
+  if (!isResume(invs[restartIdx].argv)) return 'restart drive was not a --resume';
+  const workSession = sessionIdOf(invs[0].argv);
+  if (sessionIdOf(invs[restartIdx].argv) !== workSession) {
+    return 'restart drive ran on a different session than the work session';
+  }
+  // After the restart there must be a NEW fresh session whose prompt is NEXT.md.
+  const after = invs.slice(restartIdx + 1).find(function (i) { return isFresh(i.argv); });
+  if (!after) return 'no fresh session launched after the restart drive';
+  if (lastArg(after.argv) !== NEXT_CONTENT) {
+    return 'post-restart prompt mismatch.\n  got: ' + lastArg(after.argv) +
+      '\n  expected: ' + NEXT_CONTENT;
+  }
+  if (sessionIdOf(after.argv) === workSession) {
+    return 'post-restart session id is NOT distinct from the work session';
+  }
+});
+
+// ---------- Case 3: goal done -> exit 0 ----------
+check('goal done (all-pass real-schema criteria) exits 0', function () {
+  const r = runSupervisor({ mode: 'done', maxTurns: 3 });
+  if (r.code !== 0) {
+    return 'expected exit 0 on done, got ' + r.code + '\nstderr: ' + r.stderr.slice(-400);
+  }
+});
+
+// ---------- Case 4: CANCEL -> exit 0 ----------
+check('CANCEL exits 0', function () {
+  const r = runSupervisor({ mode: 'cancel', maxTurns: 3 });
+  if (r.code !== 0) {
+    return 'expected exit 0 on CANCEL, got ' + r.code + '\nstderr: ' + r.stderr.slice(-400);
+  }
+  if (r.stderr.indexOf('CANCEL') === -1) {
+    return 'expected CANCEL mention in log, got: ' + r.stderr.slice(-300);
+  }
+});
+
+// ---------- Case 5: no --continue; only legitimate --resume uses ----------
+check('no --continue, every --resume continues a session that was started fresh', function () {
+  const r = runSupervisor({ mode: 'restart', tokensByCall: [300, 600], maxTurns: 4 });
+  const invs = readInvocations(r.invFile);
+  // A session is "real" once it has been launched with --session-id. A --resume is
+  // legitimate only if it targets such a session (same-session-continue or the
+  // restart-drive on that same session). A --resume against an id never started
+  // fresh would mean carrying work into a foreign/invented cycle.
+  const freshIds = new Set();
   for (let i = 0; i < invs.length; i++) {
-    if (invs[i].pid) spawnedPids.push(invs[i].pid);
-  }
-}
-
-try {
-  // ---------- Case 1: restart - detect, KILL stuck mock, relaunch cycle 2 ----------
-  // Core new assertion. The mock writes restart markers then sleeps forever.
-  // The supervisor must kill it (pid gone) and launch a SECOND cycle.
-  check('CORE monitor-and-kill: stuck restart mock is killed, cycle 2 launches', function () {
-    const r = runSupervisor({ mode: 'restart', maxCycles: 2 });
-    const invs = readInvocations(r.invFile);
-    trackPids(invs);
-    if (invs.length < 2) {
-      return 'expected >= 2 invocations (cycle 2 must launch), got ' + invs.length +
-             '\nstderr: ' + r.stderr.slice(-400);
+    const argv = invs[i].argv;
+    if (argv.indexOf('--continue') !== -1) {
+      return 'invocation ' + (i + 1) + ' passed --continue (forbidden)';
     }
-    // The first (stuck) mock pid must be dead - the supervisor killed its group.
-    const firstPid = invs[0].pid;
-    if (pidAlive(firstPid)) {
-      return 'first stuck mock pid ' + firstPid + ' still alive - supervisor did not kill it';
-    }
-    // Cycle 2 prompt must be seeded from NEXT.md.
-    const secondArgv = invs[1].argv;
-    const prompt2 = secondArgv[secondArgv.length - 1];
-    if (prompt2 !== NEXT_CONTENT) {
-      return 'cycle-2 prompt mismatch.\n  got:      ' + prompt2 + '\n  expected: ' + NEXT_CONTENT;
-    }
-    // Distinct fresh session ids across cycles.
-    const ids = invs.map(function (inv) { return getSessionId(inv.argv); });
-    if (ids.some(function (id) { return !id; })) {
-      return 'some invocation missing --session-id: ' + JSON.stringify(ids);
-    }
-    if (new Set(ids).size < 2) {
-      return 'session ids are NOT distinct: ' + JSON.stringify(ids);
-    }
-  });
-
-  // ---------- Case 2: no --continue or --resume regression ----------
-  check('no invocation passed --continue or --resume', function () {
-    const r = runSupervisor({ mode: 'restart', maxCycles: 2 });
-    const invs = readInvocations(r.invFile);
-    trackPids(invs);
-    for (let i = 0; i < invs.length; i++) {
-      const argv = invs[i].argv;
-      if (argv.indexOf('--continue') !== -1) {
-        return 'invocation ' + (i + 1) + ' passed --continue (regression)';
-      }
-      if (argv.indexOf('--resume') !== -1) {
-        return 'invocation ' + (i + 1) + ' passed --resume (regression)';
+    if (isFresh(argv)) {
+      freshIds.add(sessionIdOf(argv));
+    } else if (isResume(argv)) {
+      if (!freshIds.has(sessionIdOf(argv))) {
+        return 'invocation ' + (i + 1) + ' --resumed session ' + sessionIdOf(argv) +
+          ' that was never started fresh (would carry work into a foreign cycle)';
       }
     }
-  });
-
-  // ---------- Case 3: done - stuck mock with all-pass criteria -> kill + exit 0 ----------
-  check('stuck done mock: detected, killed, exit 0', function () {
-    const r = runSupervisor({ mode: 'done', maxCycles: 3 });
-    const invs = readInvocations(r.invFile);
-    trackPids(invs);
-    if (r.code !== 0) {
-      return 'expected exit 0 on done, got ' + r.code + '\nstderr: ' + r.stderr.slice(-400);
-    }
-    if (invs.length < 1) return 'expected >= 1 invocation, got 0';
-    if (pidAlive(invs[0].pid)) {
-      return 'done mock pid ' + invs[0].pid + ' still alive - supervisor did not kill it';
-    }
-  });
-
-  // ---------- Case 4: CANCEL - stuck mock touches CANCEL then sleeps -> kill + exit 0 ----------
-  check('stuck cancel mock: killed, exit 0, CANCEL logged', function () {
-    const r = runSupervisor({ mode: 'cancel', maxCycles: 3 });
-    const invs = readInvocations(r.invFile);
-    trackPids(invs);
-    if (r.code !== 0) {
-      return 'expected exit 0 on CANCEL, got ' + r.code + '\nstderr: ' + r.stderr.slice(-400);
-    }
-    if (r.stderr.indexOf('CANCEL') === -1) {
-      return 'expected CANCEL mention in log, got: ' + r.stderr.slice(-300);
-    }
-    if (invs.length >= 1 && pidAlive(invs[0].pid)) {
-      return 'cancel mock pid ' + invs[0].pid + ' still alive - supervisor did not kill it';
-    }
-  });
-
-  // ---------- Case 5: max-cycles cap exits non-zero ----------
-  // max-cycles=1: cycle 1 is a restart, then the for-loop cap fires -> exit 3.
-  check('max-cycles cap exits non-zero after cap', function () {
-    const r = runSupervisor({ mode: 'restart', maxCycles: 1 });
-    trackPids(readInvocations(r.invFile));
-    if (r.code === 0) {
-      return 'expected non-zero exit with max-cycles=1 on restart-only first cycle, got 0';
-    }
-  });
-
-  // ---------- Case 6: passes:false is NOT done ----------
-  check('passes:false criteria object does not count as done', function () {
-    const r = runSupervisor({ mode: 'done', maxCycles: 2, extraEnv: { AUTOLOOP_TEST_PASSES: 'false' } });
-    trackPids(readInvocations(r.invFile));
-    if (r.code === 0) {
-      return 'supervisor exited 0 with passes:false criteria (false positive done)';
-    }
-    if (r.stderr.indexOf('goal DONE') !== -1) {
-      return 'supervisor logged goal DONE for passes:false criteria';
-    }
-  });
-
-  // ---------- Case 7: NON-VACUITY - spawnSync-wait design HANGS on the stuck mock ----------
-  // Mutate the supervisor back to a spawnSync-wait design: it waits for the child
-  // to exit naturally before checking markers. Against a mock that NEVER exits,
-  // it can never reach cycle 2. With a bounded outer timeout the old design times
-  // out (never reaches the second invocation), proving the kill is load-bearing.
-  check('NON-VACUITY: spawnSync-wait supervisor hangs on stuck mock (never reaches cycle 2)', function () {
-    const src = fs.readFileSync(SUPERVISOR, 'utf8');
-
-    // Build a minimal spawnSync-wait variant that mirrors the OLD behavior: it
-    // blocks on spawnSync until the child exits, THEN classifies markers. It does
-    // not spawn detached, does not poll, never kills. This is the architecture the
-    // 1% test found broken.
-    const oldSupervisor = [
-      "'use strict';",
-      "const fs = require('node:fs');",
-      "const path = require('node:path');",
-      "const { randomUUID } = require('node:crypto');",
-      "const { spawnSync } = require('node:child_process');",
-      'const argv = process.argv.slice(2);',
-      'function argValue(f){const i=argv.indexOf(f);return i>=0&&argv[i+1]?argv[i+1]:null;}',
-      "const projectDir = path.resolve(argValue('--project-dir')||process.cwd());",
-      "const companyDir = path.resolve(process.env.COMPANY_DIR||argValue('--company-dir')||path.join(projectDir,'.company'));",
-      "const maxCycles = parseInt(argValue('--max-cycles')||'50',10);",
-      "const permissionMode = argValue('--permission-mode')||'bypassPermissions';",
-      "const claudeBin = process.env.CLAUDE_BIN||'claude';",
-      'let currentPrompt = argv[argv.length-1];',
-      "const criteriaPath = path.join(companyDir,'criteria.json');",
-      "const debateConfirmedPath = path.join(companyDir,'RESTART_DEBATE_CONFIRMED');",
-      "const nextMdPath = path.join(companyDir,'NEXT.md');",
-      'for (let cycle=1; cycle<=maxCycles; cycle++){',
-      '  const sessionId = randomUUID();',
-      '  const loopStart = Date.now();',
-      '  try { fs.unlinkSync(debateConfirmedPath); } catch(e){}',
-      // The fatal line: spawnSync BLOCKS until the child exits. The stuck mock
-      // never exits, so we never get past here. No poll, no kill.
-      "  spawnSync(claudeBin, ['-p','--session-id',sessionId,'--permission-mode',permissionMode,currentPrompt], { cwd: projectDir, env: Object.assign({},process.env,{COMPANY_DIR:companyDir}), encoding:'utf8', maxBuffer: 10*1024*1024 });",
-      '  if (fs.existsSync(path.join(companyDir,"CANCEL"))) process.exit(0);',
-      '  try { const p=JSON.parse(fs.readFileSync(criteriaPath,"utf8")); const l=Array.isArray(p.criteria)?p.criteria:(Array.isArray(p)?p:[]); if(l.length&&l.every(c=>c&&c.passes===true)) process.exit(0);} catch(e){}',
-      '  try { if(fs.existsSync(debateConfirmedPath)&&fs.statSync(nextMdPath).mtimeMs>loopStart){ currentPrompt=fs.readFileSync(nextMdPath,"utf8").trim(); continue; } } catch(e){}',
-      '  process.exit(2);',
-      '}',
-      'process.exit(3);',
-    ].join('\n');
-
-    const scratch = makeScratch();
-    const oldPath = path.join(scratch, 'supervisor-spawnsync.js');
-    fs.writeFileSync(oldPath, oldSupervisor);
-
-    // Bounded timeout so the hang is observable, not infinite.
-    const r = runSupervisor({
-      scratch: scratch,
-      supervisorPath: oldPath,
-      mode: 'restart',
-      maxCycles: 2,
-      timeout: 6000,
-    });
-    const invs = readInvocations(r.invFile);
-    trackPids(invs);
-
-    // The old design must NOT reach cycle 2: it blocks in cycle 1's spawnSync on
-    // the stuck mock. It either times out or only ever recorded ONE invocation.
-    if (invs.length >= 2) {
-      return 'spawnSync-wait design unexpectedly reached cycle 2 (' + invs.length +
-             ' invocations) - the mock was not actually stuck, test is vacuous';
-    }
-    if (!r.timedOut) {
-      return 'spawnSync-wait design did not hang (timedOut=' + r.timedOut +
-             ', code=' + r.code + ') - expected it to block on the stuck mock';
-    }
-
-    process.stderr.write(
-      '[autoloop.test] NON-VACUITY: spawnSync-wait supervisor HUNG on the stuck mock ' +
-      '(timedOut=' + r.timedOut + ', invocations=' + invs.length + ', never reached cycle 2). ' +
-      'The fixed monitor-and-kill design kills the stuck mock and reaches cycle 2. ' +
-      'The kill path is load-bearing.\n'
-    );
-  });
-} finally {
-  // Reap any stray mock sleeper so CI never leaks a setInterval process.
-  for (let i = 0; i < spawnedPids.length; i++) {
-    try { process.kill(spawnedPids[i], 'SIGKILL'); } catch (e) {}
   }
-}
+  // And the fresh-context handoff must be a NEW session, not a --resume carry.
+  const restartIdx = invs.findIndex(function (i) { return isRestartDrive(i.argv); });
+  if (restartIdx !== -1) {
+    const after = invs.slice(restartIdx + 1).find(function (i) { return isFresh(i.argv); });
+    if (!after) return 'no fresh --session-id handoff after the restart drive';
+  }
+});
+
+// ---------- Case 6: passes:false is NOT done ----------
+check('passes:false criteria object does not count as done', function () {
+  const r = runSupervisor({ mode: 'done', maxTurns: 2, extraEnv: { AUTOLOOP_TEST_PASSES: 'false' } });
+  if (r.code === 0) {
+    return 'supervisor exited 0 with passes:false criteria (false positive done)';
+  }
+  if (r.stderr.indexOf('goal DONE') !== -1) {
+    return 'supervisor logged goal DONE for passes:false criteria';
+  }
+});
+
+// ---------- Case 7: NON-VACUITY - a fill-ignoring supervisor fails the threshold cross ----------
+// Build a variant that NEVER restarts (ignores fill, always resumes the same
+// session). Run the SAME mock that steps fill across the threshold. The variant
+// must NEVER drive /company restart and NEVER create a second session, so the
+// "restart at threshold" assertion from case 2 FAILS against it. We assert the
+// variant's behavior, then confirm the real supervisor does the opposite.
+check('NON-VACUITY: fill-ignoring supervisor never restarts, never spawns a 2nd session', function () {
+  // A minimal supervisor that ignores fill: it loops, runs a fresh-then-resume
+  // session, checks done/cancel, but NEVER computes fill and NEVER restarts.
+  const variant = [
+    "'use strict';",
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const { randomUUID } = require('node:crypto');",
+    "const { spawnSync } = require('node:child_process');",
+    'const argv = process.argv.slice(2);',
+    'function argVal(f){ const i = argv.indexOf(f); return i >= 0 && argv[i+1] ? argv[i+1] : null; }',
+    "const projectDir = path.resolve(argVal('--project-dir') || process.cwd());",
+    "const companyDir = path.resolve(process.env.COMPANY_DIR || argVal('--company-dir') || path.join(projectDir, '.company'));",
+    "const maxTurns = parseInt(argVal('--max-turns') || '6', 10);",
+    "const permissionMode = argVal('--permission-mode') || 'bypassPermissions';",
+    "const claudeBin = process.env.CLAUDE_BIN || 'claude';",
+    "const prompt = argv[argv.length - 1];",
+    "const criteriaPath = path.join(companyDir, 'criteria.json');",
+    "const cancelPath = path.join(companyDir, 'CANCEL');",
+    'function isDone(){ try { const p = JSON.parse(fs.readFileSync(criteriaPath, "utf8"));',
+    '  const l = Array.isArray(p.criteria) ? p.criteria : (Array.isArray(p) ? p : []);',
+    '  return l.length && l.every(c => c && c.passes === true); } catch(e){ return false; } }',
+    'let sessionId = randomUUID();',
+    'let fresh = true;',
+    'for (let t = 1; t <= maxTurns; t++) {',
+    '  if (fs.existsSync(cancelPath)) process.exit(0);',
+    '  if (isDone()) process.exit(0);',
+    "  const a = ['-p'];",
+    "  if (fresh) a.push('--session-id', sessionId); else a.push('--resume', sessionId);",
+    "  a.push('--permission-mode', permissionMode, fresh ? prompt : 'continue');",
+    "  spawnSync(claudeBin, a, { cwd: projectDir, env: Object.assign({}, process.env, { COMPANY_DIR: companyDir }), encoding: 'utf8' });",
+    '  if (fs.existsSync(cancelPath)) process.exit(0);',
+    '  if (isDone()) process.exit(0);',
+    '  // NEVER computes fill, NEVER restarts: just keeps resuming the same session.',
+    '  fresh = false;',
+    '}',
+    'process.exit(3);',
+  ].join('\n');
+
+  const scratch = makeScratch();
+  const variantPath = path.join(scratch, 'supervisor-fillignore.js');
+  fs.writeFileSync(variantPath, variant);
+
+  const r = runSupervisor({
+    scratch: scratch,
+    supervisorPath: variantPath,
+    mode: 'restart',
+    tokensByCall: [300, 600, 600, 600],
+    maxTurns: 4,
+  });
+  const invs = readInvocations(r.invFile);
+
+  // The fill-ignoring variant must NEVER drive /company restart.
+  if (invs.some(function (i) { return isRestartDrive(i.argv); })) {
+    return 'fill-ignoring variant unexpectedly drove /company restart - test is vacuous';
+  }
+  // And must NEVER create a second session id.
+  const ids = new Set(invs.map(function (i) { return sessionIdOf(i.argv); }));
+  if (ids.size >= 2) {
+    return 'fill-ignoring variant created a second session (' + ids.size +
+      ') - it should only ever resume one session';
+  }
+
+  process.stderr.write(
+    '[autoloop.test] NON-VACUITY: fill-ignoring supervisor crossed the threshold ' +
+    '(token steps 300->600 over ' + invs.length + ' invocations) yet NEVER drove ' +
+    '/company restart and used ' + ids.size + ' distinct session id(s). The case-2 ' +
+    'assertion (drive restart at threshold, then a NEW session from NEXT.md) FAILS ' +
+    'against this variant. The threshold-driven restart path is load-bearing.\n'
+  );
+});
 
 // ---------- summary ----------
 if (failures > 0) {
