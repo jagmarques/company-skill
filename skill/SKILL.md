@@ -246,7 +246,7 @@ Print as plain text (NOT Bash):
 
 ════════════════════════════════════════════════
 CYCLE {N} - THINK > EXECUTE > VERIFY
-Dashboard: http://127.0.0.1:{COMPANY_DASHBOARD_PORT or 7777}
+Dashboard: {URL printed by Step 1b, e.g. http://127.0.0.1:7042}
 ════════════════════════════════════════════════
 
 Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything. You MUST re-run ONE cheap READ-ONLY check from the previous cycle (the cheapest side-effect-free passing VERIFY-WITH, or `git status` plus one criterion's read probe) and record the result in the cycle briefing as `PRIOR-VERIFY: FRESH` or `PRIOR-VERIFY: REGRESSION - {what changed}`. A regression found at cycle start MUST be logged and addressed before new work is emitted: do not spawn leads on top of broken prior state. Never re-run a VERIFY-WITH that has side effects (publish, deploy, write). This re-verification step is required. Omitting it is a planning bug, not an optimization. When the goal names a repo root and `.company/codegraph/graph.json` exists, also run `node <skill-scripts-dir>/codegraph.js status --root <root>` (read-only, where `<skill-scripts-dir>` is the scripts directory next to SKILL.md in the installed skill) and write FRESH or STALE(n) into the briefing.
@@ -483,7 +483,7 @@ The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the 
 
 `scripts/dashboard.js` is a zero-dependency localhost server showing live token cost, active agents, criteria progress, and cycle stats. The preamble auto-starts it on first `/company` run and prints its URL. Subsequent runs detect the running server and skip the launch.
 
-**Port:** defaults to 7777. Override with `COMPANY_DASHBOARD_PORT` (e.g. `export COMPANY_DASHBOARD_PORT=9000`).
+**Port:** derived per session from `$CLAUDE_CODE_SESSION_ID` in the 7000-7999 range (7777 is remapped to 7700). The actual URL is printed by Step 1b at startup and shown in the status line. Override with `COMPANY_DASHBOARD_PORT` (e.g. `export COMPANY_DASHBOARD_PORT=9000`).
 
 **Accessing it:** open the printed URL in any browser. The page polls every 3 seconds.
 
