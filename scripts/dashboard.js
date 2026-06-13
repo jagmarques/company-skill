@@ -1363,6 +1363,28 @@ const fmtBytes = (n) => {
   return n + ' B';
 };
 const shortModel = (m) => m ? String(m).replace(/^claude-/, '') : '?';
+// Human-readable model label: "Opus 4.8 (1M context)" style.
+// Keep in sync with the server-side humanizeModel() in dashboard.js.
+function humanizeModel(modelId) {
+  if (!modelId) return '?';
+  const m = String(modelId).toLowerCase();
+  let name;
+  if (m.includes('fable') || m.includes('mythos')) name = 'Fable 5';
+  else if (m.includes('opus-4-8')) name = 'Opus 4.8';
+  else if (m.includes('opus-4-5')) name = 'Opus 4.5';
+  else if (m.includes('opus-4')) name = 'Opus 4';
+  else if (m.includes('sonnet-4')) name = 'Sonnet 4';
+  else if (m.includes('sonnet-3-7')) name = 'Sonnet 3.7';
+  else if (m.includes('sonnet-3-5')) name = 'Sonnet 3.5';
+  else if (m.includes('sonnet')) name = 'Sonnet';
+  else if (m.includes('haiku')) name = 'Haiku';
+  else name = modelId.replace(/^claude-/, '');
+  // 1M window: ids containing [1m] or known opus-4 family
+  const is1M = m.includes('[1m]') || m.includes('claude-opus-4') ||
+    m.includes('fable') || m.includes('mythos');
+  const win = is1M ? '1M context' : '200K context';
+  return name + ' (' + win + ')';
+}
 
 function renderHeader(s) {
   const stats = $('stats');
@@ -1415,7 +1437,7 @@ function renderBand(s) {
     band.appendChild(d);
   };
   add('policy', p.policy || '?');
-  add('session model', shortModel(p.sessionModel));
+  add('session model', humanizeModel(p.sessionModel));
   add('owners', String(p.ownerCount ?? '?'));
   if (p.halt) band.appendChild(el('span', 'halt', 'HALT REQUESTED'));
   if (s.warning) {
@@ -1496,7 +1518,7 @@ function renderContextFill(s) {
   const row = el('div', 'ctx-row');
   row.appendChild(el('span', 'ctx-pct ' + colorClass, pct + '%'));
   row.appendChild(el('span', 'muted', fmtTok(ctx.used) + ' / ' + fmtTok(ctx.window) + ' tokens'));
-  if (ctx.modelId) row.appendChild(el('span', 'muted', shortModel(ctx.modelId)));
+  if (ctx.modelId) row.appendChild(el('span', 'muted', humanizeModel(ctx.modelId)));
   if (ctx.fill >= ctx.threshold && ctx.enforceRestart !== false) row.appendChild(el('span', 'pill warn', 'restart due'));
   root.appendChild(row);
 }
@@ -2248,7 +2270,27 @@ server.on('error', (err) => {
 
 startListening();
 
+// Map a raw model id to a human-readable label with context-window note.
+// Mirrors the client-side copy inside PAGE for testability.
+function humanizeModel(modelId) {
+  if (!modelId) return '?';
+  const m = String(modelId).toLowerCase();
+  let name;
+  if (m.includes('fable') || m.includes('mythos')) name = 'Fable 5';
+  else if (m.includes('opus-4-8')) name = 'Opus 4.8';
+  else if (m.includes('opus-4-5')) name = 'Opus 4.5';
+  else if (m.includes('opus-4')) name = 'Opus 4';
+  else if (m.includes('sonnet-4')) name = 'Sonnet 4';
+  else if (m.includes('sonnet-3-7')) name = 'Sonnet 3.7';
+  else if (m.includes('sonnet-3-5')) name = 'Sonnet 3.5';
+  else if (m.includes('sonnet')) name = 'Sonnet';
+  else if (m.includes('haiku')) name = 'Haiku';
+  else name = modelId.replace(/^claude-/, '');
+  const win = is1MModel(modelId) ? '1M context' : '200K context';
+  return name + ' (' + win + ')';
+}
+
 // Test-only exports; the server path never calls require() on itself.
 if (typeof module !== 'undefined') {
-  module.exports = { usedTokens };
+  module.exports = { usedTokens, humanizeModel };
 }
