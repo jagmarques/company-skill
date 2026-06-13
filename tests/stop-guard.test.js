@@ -69,19 +69,35 @@ function writeCriteria(dir, value) {
   check('no state allows', d, 'allow');
 }
 
-// 2. CANCEL file allows and must be consumed so it cannot leak into a later run.
+// 2. CANCEL file allows the stop.
 {
   const d = freshDir();
   fs.writeFileSync(path.join(d, 'GOAL.md'), 'goal');
   writeCriteria(d, { criteria: [{ id: 1, description: 'x', passes: false, evidence: null }] });
   fs.writeFileSync(path.join(d, 'CANCEL'), '');
   check('cancel allows', d, 'allow');
-  if (fs.existsSync(path.join(d, 'CANCEL'))) {
-    console.log('FAIL case ' + caseNo + ' (cancel consumed): CANCEL file survived');
+  // Regression pin: CANCEL must persist so a second stop also allows (single-use bug).
+  caseNo += 1;
+  if (!fs.existsSync(path.join(d, 'CANCEL'))) {
+    console.log('FAIL case ' + caseNo + ' (cancel persists): CANCEL file was deleted');
     failures += 1;
   } else {
-    console.log('ok: case ' + caseNo + ' cancel file consumed');
+    console.log('ok: case ' + caseNo + ' cancel file persists after first allow');
   }
+  // Second run on the same fixture must also allow - catches the old single-use defect.
+  check('cancel allows on second run too', d, 'allow');
+}
+
+// 2c. Removing CANCEL re-arms the gate: a failing-criteria run blocks again.
+{
+  const d = freshDir();
+  fs.writeFileSync(path.join(d, 'GOAL.md'), 'goal');
+  writeCriteria(d, { criteria: [{ id: 1, description: 'x', passes: false, evidence: null }] });
+  check('no cancel blocks', d, 'block', 'criteria not met');
+  fs.writeFileSync(path.join(d, 'CANCEL'), '');
+  check('cancel added allows', d, 'allow');
+  fs.unlinkSync(path.join(d, 'CANCEL'));
+  check('cancel removed blocks again', d, 'block', 'criteria not met');
 }
 
 // 3. Unparseable JSON fails closed.
