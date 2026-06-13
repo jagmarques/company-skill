@@ -64,16 +64,26 @@ function resolvePort() {
 }
 const PORT = resolvePort();
 
+// A blank/garbled OWNER does NOT qualify a dir as the active run (BLOCKER-1 fix).
+function hasCleanOwner(ownerPath) {
+  try {
+    const lines = fs.readFileSync(ownerPath, 'utf8')
+      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    return lines.length > 0 &&
+      lines.every(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
+  } catch (e) { return false; }
+}
 function resolveCompanyDir() {
   const flag = argValue('--company-dir');
   if (flag) return path.resolve(flag);
   if (process.env.COMPANY_DIR) return path.resolve(process.env.COMPANY_DIR);
+  const home = process.env.HOME || os.homedir();
   const cwdDir = path.resolve('.company');
-  const homeDir = path.join(os.homedir(), '.company');
-  // Prefer the dir that holds OWNER (the real active run) to avoid cwd-drift.
-  const cwdHasOwner = fs.existsSync(path.join(cwdDir, 'OWNER'));
-  const homeHasOwner = fs.existsSync(path.join(homeDir, 'OWNER'));
-  // cwd/.company wins when it has OWNER (project-local run, or both have OWNER).
+  const homeDir = home ? path.join(home, '.company') : null;
+  // Prefer the dir that holds a clean OWNER (real active run) to avoid cwd-drift.
+  const cwdHasOwner = hasCleanOwner(path.join(cwdDir, 'OWNER'));
+  const homeHasOwner = homeDir && hasCleanOwner(path.join(homeDir, 'OWNER'));
+  // cwd/.company wins when it has a clean OWNER (project-local run, or both have OWNER).
   if (cwdHasOwner) return cwdDir;
   if (homeHasOwner) return homeDir;
   return cwdDir; // new-run default: preserves original single-project behavior
