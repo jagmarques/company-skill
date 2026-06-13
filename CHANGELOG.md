@@ -14,7 +14,7 @@ All notable changes to the /company skill are recorded here. Format follows Keep
   Blocking joins are reserved for genuine cross-dependencies. Extends the existing long-waits
   run_in_background primitive to cover independent worker waves.
 - Split-long-contracts guidance added to EXECUTE. A single mega-contract bypasses the reviewer and
-  critic interval; the orchestrator should prefer two shorter contracts or add a mid-contract
+  critic interval. The orchestrator should prefer two shorter contracts or add a mid-contract
   checkpoint. Guidance only, not a hard gate.
 - Send-to-user note added to COMPRESS. Mid-run deliverables meant for a watching human should be
   surfaced via the harness send-to-user capability where available, not buried in findings.
