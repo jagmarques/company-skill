@@ -18,6 +18,16 @@ function copyFile(src, dest) {
 
 copyFile(path.join(srcDir, 'skill', 'SKILL.md'), path.join(skillDir, 'SKILL.md'));
 
+// Scripts are runtime dependencies referenced from SKILL.md (codegraph.js,
+// check-contracts.js, check-findings.js). check.sh and test files stay in the
+// repo only and are not needed at install time.
+const INSTALL_SCRIPTS = ['codegraph.js', 'check-contracts.js', 'check-findings.js'];
+const scriptsDestDir = path.join(skillDir, 'scripts');
+for (const script of INSTALL_SCRIPTS) {
+  const srcPath = path.join(srcDir, 'scripts', script);
+  if (fs.existsSync(srcPath)) copyFile(srcPath, path.join(scriptsDestDir, script));
+}
+
 for (const cmd of ['run', 'status', 'resume']) {
   const src = path.join(srcDir, 'commands', `${cmd}.md`);
   if (fs.existsSync(src)) copyFile(src, path.join(commandsDir, `${cmd}.md`));

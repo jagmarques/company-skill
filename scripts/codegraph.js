@@ -98,8 +98,41 @@ function countIdents(content) {
   return refs;
 }
 
+function pullDefault(root) {
+  // Try to advance the local checkout to match origin before building so the
+  // rebuilt graph indexes merged truth, not a stale local tree.
+  // Tolerate detached HEAD, diverged local, or offline: build is attempted
+  // regardless and the resulting stamp reflects whatever HEAD was reached.
+  let defaultBranch = null;
+  try {
+    const ref = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).trim();
+    defaultBranch = ref.replace('refs/remotes/origin/', '');
+  } catch (e) { /* origin/HEAD not set, probe candidates */ }
+  if (!defaultBranch) {
+    for (const b of ['main', 'master']) {
+      try { git(root, ['rev-parse', '--verify', '--quiet', 'origin/' + b]); defaultBranch = b; break; }
+      catch (e) { /* try next */ }
+    }
+  }
+  try { git(root, ['fetch', 'origin', '--quiet'], { timeout: 30000 }); }
+  catch (e) { return 'LOCAL-ONLY'; }
+  if (!defaultBranch) return null;
+  try {
+    git(root, ['pull', '--ff-only', 'origin', defaultBranch, '--quiet']);
+  } catch (e) {
+    // Diverged or detached: build with what we have and let freshness report it
+    return 'DIVERGED';
+  }
+  return null;
+}
+
 function update(root, budget) {
   const t0 = Date.now();
+  // Pull default branch from origin so update always indexes merged truth.
+  // Failure modes are noted but never abort the build.
+  let pullNote = null;
+  try { pullNote = pullDefault(root); }
+  catch (e) { pullNote = 'LOCAL-ONLY'; }
   let commit;
   try { commit = git(root, ['rev-parse', 'HEAD']).trim(); }
   catch (e) {
@@ -146,9 +179,10 @@ function update(root, budget) {
   fs.writeFileSync(gp, JSON.stringify(graph));
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const nsyms = Object.values(files).reduce((a, f) => a + f.symbols.length, 0);
+  const noteStr = pullNote ? ' ' + pullNote : '';
   console.log('codegraph: built ' + gp + ' in ' + secs + 's at commit ' + commit.slice(0, 7) +
     ' (' + Object.keys(files).length + ' files indexed, ' + nsyms + ' symbols, ' +
-    parsed + ' parsed, ' + reused + ' cached, ' + skipped + ' skipped)');
+    parsed + ' parsed, ' + reused + ' cached, ' + skipped + ' skipped)' + noteStr);
 }
 
 function freshness(root, graph) {
@@ -202,11 +236,21 @@ function status(root) {
   process.exit(0);
 }
 
+// Generic single-token locals that carry no cross-file structure signal
+const GENERIC_LOCALS = new Set([
+  'agent', 'result', 'ctx', 'res', 'err', 'req', 'msg', 'val', 'key', 'obj',
+  'data', 'args', 'opts', 'cfg', 'env', 'tmp', 'buf', 'out', 'row', 'col',
+  'idx', 'len', 'num', 'str', 'arr', 'map', 'set', 'log', 'app', 'api',
+  'db', 'io', 'fn', 'cb', 'id', 'ok', 'ret', 'cur', 'raw', 'src', 'dst'
+]);
+
 function rankFiles(graph) {
   const files = graph.files;
   const names = Object.keys(files);
   // Names defined in many files (response, data, result) carry no structure
-  // signal, so a symbol's refs are discounted by its definition count
+  // signal, so a symbol's refs are discounted by its definition count.
+  // Generic local consts that are only referenced inside their own file are
+  // excluded from ranking: they add noise without cross-file structure signal.
   const defCount = {};
   for (const rel of names) {
     for (const s of files[rel].symbols) defCount[s.name] = (defCount[s.name] || 0) + 1;
@@ -215,11 +259,13 @@ function rankFiles(graph) {
   for (const rel of names) {
     const syms = [];
     for (const s of files[rel].symbols) {
-      let refs = 0;
+      let crossRefs = 0;
       for (const other of names) {
-        if (other !== rel) refs += files[other].refs[s.name] || 0;
+        if (other !== rel) crossRefs += files[other].refs[s.name] || 0;
       }
-      refs = Math.round(refs / defCount[s.name]);
+      // A const with no cross-file references and a generic name adds no signal
+      if (crossRefs === 0 && s.kind === 'const' && GENERIC_LOCALS.has(s.name)) continue;
+      const refs = Math.round(crossRefs / defCount[s.name]);
       syms.push({ name: s.name, kind: s.kind, refs: refs });
     }
     syms.sort((a, b) => b.refs - a.refs);

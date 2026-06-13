@@ -204,6 +204,8 @@ Before the next THINK, spawn `company-digest` with the cycle's findings files, t
 
 If the goal's repo root has a codebase graph and `node scripts/codegraph.js status --root <root>` reports STALE, run `node scripts/codegraph.js update --root <root>` now (incremental, seconds-scale). COMPRESS runs after the merge gate, so the rebuilt graph indexes merged truth, never mid-cycle drafts.
 
+The cycle review records whether lead contracts cited map-surfaced files. After two consecutive goals with roughly zero map-cited files, the map demotes to on-demand: status continues to run but the THINK paste stops until the lead explicitly requests it.
+
 The digest also: (a) appends any FAILED -> USE INSTEAD or INEFFICIENT -> FASTER lesson discovered THIS cycle to `.company/playbook.md` immediately, dedup-gated (see After Done) - a session killed mid-run must not lose its lessons. (b) It records cost: run `npx ccusage@latest session --id "$CLAUDE_CODE_SESSION_ID" --json` (best effort: on any failure write `COST: unavailable` and move on), write `.company/cycles/cycle-{N}-cost.json` with totalCost and totalTokens, and put one line in the next briefing by diffing the previous cycle's file: `COST: cycle +{delta} tokens (~{delta} USD), run {cumulative}`. Tokens are the reliable number. USD can read 0 or low for models the tool cannot price.
 
 Do not try to run `/compact` yourself. It is a user command, not a tool. Context pressure is handled by the PreCompact and SessionStart hooks plus Restart mode.

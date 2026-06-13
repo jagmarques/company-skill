@@ -120,8 +120,75 @@ const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-plain-'));
 r = run(['update', '--root', plain], state);
 check('non-repo root rejected', r.status !== 0 && r.out.includes('not a git repository'), r.out);
 
+// 14. origin-ahead: update fetches and pulls so status returns FRESH exit 0
+// Set up a bare remote (simulates origin), clone from it, advance origin one commit.
+const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-bare-'));
+const local = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-local-'));
+const state14 = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-state14-'));
+sh(bare, 'git', ['init', '--bare', '-q', '.']);
+// Seed the bare repo: clone, write a file, push back to bare
+const seed = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-seed-'));
+sh(seed, 'git', ['clone', '-q', bare, '.']);
+sh(seed, 'git', ['config', 'user.email', 'test@example.com']);
+sh(seed, 'git', ['config', 'user.name', 'test']);
+fs.writeFileSync(path.join(seed, 'base.py'), 'def base_fn():\n    return 1\n');
+sh(seed, 'git', ['add', '.']);
+sh(seed, 'git', ['commit', '-q', '-m', 'base']);
+sh(seed, 'git', ['push', '-q', 'origin', 'HEAD:main']);
+// Clone from bare into local (this is the "stale" clone)
+sh(local, 'git', ['clone', '-q', bare, '.']);
+sh(local, 'git', ['config', 'user.email', 'test@example.com']);
+sh(local, 'git', ['config', 'user.name', 'test']);
+// Build the graph at the initial commit
+r = run(['update', '--root', local], state14);
+check('origin-ahead setup: initial build succeeds', r.status === 0, r.out);
+// Advance origin one commit (via seed)
+fs.writeFileSync(path.join(seed, 'added.py'), 'def added_fn():\n    return 2\n');
+sh(seed, 'git', ['add', '.']);
+sh(seed, 'git', ['commit', '-q', '-m', 'origin advances']);
+sh(seed, 'git', ['push', '-q', 'origin', 'HEAD:main']);
+// status now sees origin is ahead: graph should be STALE
+r = run(['status', '--root', local], state14);
+check('origin-ahead: status is STALE before update', r.status === 3 && r.out.includes('STALE('), r.out);
+// update must fetch and pull, then status must be FRESH
+r = run(['update', '--root', local], state14);
+check('origin-ahead: update exits 0', r.status === 0, r.out);
+r = run(['status', '--root', local], state14);
+check('origin-ahead: status is FRESH after update', r.status === 0 && r.out.includes('FRESH'), r.out);
+
+// 15. generic local const does not outrank an exported function referenced across files
+const rankRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-rank-'));
+const rankState = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-rank-state-'));
+sh(rankRepo, 'git', ['init', '-q']);
+sh(rankRepo, 'git', ['config', 'user.email', 'test@example.com']);
+sh(rankRepo, 'git', ['config', 'user.name', 'test']);
+// lib.js exports a function that four other files import
+fs.writeFileSync(path.join(rankRepo, 'lib.js'),
+  'function parseRequest(x) { return x; }\nconst result = null;\nmodule.exports.parseRequest = parseRequest;\n');
+for (let i = 0; i < 4; i++) {
+  fs.writeFileSync(path.join(rankRepo, 'consumer' + i + '.js'),
+    'const { parseRequest } = require("./lib");\nconst result = parseRequest(' + i + ');\n');
+}
+sh(rankRepo, 'git', ['add', '.']);
+sh(rankRepo, 'git', ['commit', '-q', '-m', 'rank fixture']);
+r = run(['update', '--root', rankRepo], rankState);
+check('ranking fixture built', r.status === 0, r.out);
+r = run(['map', '--root', rankRepo], rankState);
+const iLib = r.out.indexOf('lib.js');
+const parsePos = r.out.indexOf('parseRequest');
+// result is a generic local: it should not appear before parseRequest in lib.js's symbol list
+const resultPos = r.out.indexOf('const result');
+check('generic local const does not outrank exported cross-file fn',
+  parsePos !== -1 && (resultPos === -1 || parsePos < resultPos), r.out);
+
 fs.rmSync(repo, { recursive: true, force: true });
 fs.rmSync(state, { recursive: true, force: true });
 fs.rmSync(plain, { recursive: true, force: true });
+fs.rmSync(bare, { recursive: true, force: true });
+fs.rmSync(local, { recursive: true, force: true });
+fs.rmSync(state14, { recursive: true, force: true });
+fs.rmSync(seed, { recursive: true, force: true });
+fs.rmSync(rankRepo, { recursive: true, force: true });
+fs.rmSync(rankState, { recursive: true, force: true });
 if (failures) { console.log('CODEGRAPH TESTS FAILED: ' + failures); process.exit(1); }
 console.log('ALL CODEGRAPH TESTS PASSED (' + n + ' checks)');

@@ -33,6 +33,13 @@ for agent in lead worker reviewer critic digest; do
   fetch "$REPO/agents/company-$agent.md" "$HOME/.claude/agents/company-$agent.md" || echo "Warning: failed to download agent company-$agent"
 done
 
+# Scripts (runtime dependencies referenced from SKILL.md).
+# check.sh and test files stay in the repo only and are not installed.
+mkdir -p "$HOME/.claude/skills/company/scripts"
+for script in codegraph.js check-contracts.js check-findings.js; do
+  fetch "$REPO/scripts/$script" "$HOME/.claude/skills/company/scripts/$script" || echo "Warning: failed to download script $script"
+done
+
 # Hooks
 mkdir -p "$HOME/.claude/hooks"
 for pair in "stop-guard company-stop-guard" "precompact company-precompact" "session-restore company-session-restore"; do
