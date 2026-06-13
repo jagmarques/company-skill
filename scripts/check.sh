@@ -154,6 +154,14 @@ else
   note_fail "context-guard decision matrix failed"
 fi
 
+# 11c. Precompact + session-restore OWNER handling: garbled OWNER must fall through,
+#      clean OWNER must scope correctly.
+if node tests/hooks-owner.test.js; then
+  echo "ok: hooks-owner decision matrix"
+else
+  note_fail "hooks-owner decision matrix failed"
+fi
+
 # 12. Contract checker matrix: field and DEPENDS-ON validation must hold.
 if node tests/check-contracts.test.js; then
   echo "ok: contract checker matrix"

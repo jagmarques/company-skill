@@ -16,9 +16,12 @@ if (!fs.existsSync(companyDir)) process.exit(0);
 try {
   const hookInput = JSON.parse(fs.readFileSync(0, 'utf8'));
   if (hookInput && typeof hookInput.session_id === 'string') {
-    const owners = fs.readFileSync(path.join(companyDir, 'OWNER'), 'utf8')
+    const rawOwners = fs.readFileSync(path.join(companyDir, 'OWNER'), 'utf8')
       .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-    if (owners.length > 0 && owners.indexOf(hookInput.session_id) === -1) process.exit(0);
+    // Use the same regex guard as stop-guard: garbled OWNER lines fall through (write for all).
+    const valid = rawOwners.filter(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
+    if (rawOwners.length > 0 && valid.length === rawOwners.length &&
+        valid.indexOf(hookInput.session_id) === -1) process.exit(0);
   }
 } catch (e) {}
 

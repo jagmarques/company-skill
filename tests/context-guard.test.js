@@ -664,6 +664,62 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   });
 }
 
+// --- Null sessionId with clean OWNER (bug-fix regression) ---
+
+// Case N1: null sessionId + clean OWNER with sessions -> ALLOW (fail-open, not a company session).
+// Bug: OWNER check was skipped for null sessionId, so the hook fell through to token check
+// and blocked even though the session was not identifiable as a company session.
+{
+  const d = freshDir();
+  fs.writeFileSync(path.join(d, 'OWNER'), 'real-owner-session-xyz\n');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  caseNo += 1;
+  try {
+    const out = execFileSync(process.execPath, [HOOK], {
+      env: Object.assign({}, process.env, { COMPANY_DIR: d }),
+      encoding: 'utf8',
+      // No session_id field: hook parses null
+      input: JSON.stringify({ transcript_path: t }),
+    }).trim();
+    const got = decide(out);
+    if (got === 'allow') {
+      console.log('ok: case ' + caseNo + ' null sessionId + clean OWNER ALLOWS (fail-open)');
+    } else {
+      console.log('FAIL case ' + caseNo + ' (null-sid + OWNER): expected allow, got ' + got);
+      failures += 1;
+    }
+  } catch (e) {
+    console.log('FAIL case ' + caseNo + ' (null-sid + OWNER): crashed: ' + e.message);
+    failures += 1;
+  }
+}
+
+// Case N2: null sessionId + no OWNER (legacy gate-all mode) -> BLOCK at 60%.
+// The legacy behavior must be preserved: missing OWNER means gate every session.
+{
+  const d = freshDir();
+  fs.mkdirSync(d, { recursive: true });
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  caseNo += 1;
+  try {
+    const out = execFileSync(process.execPath, [HOOK], {
+      env: Object.assign({}, process.env, { COMPANY_DIR: d }),
+      encoding: 'utf8',
+      input: JSON.stringify({ transcript_path: t }),
+    }).trim();
+    const got = decide(out);
+    if (got === 'block') {
+      console.log('ok: case ' + caseNo + ' null sessionId + no OWNER BLOCKS (legacy gate-all preserved)');
+    } else {
+      console.log('FAIL case ' + caseNo + ' (null-sid + no OWNER): expected block, got ' + got);
+      failures += 1;
+    }
+  } catch (e) {
+    console.log('FAIL case ' + caseNo + ' (null-sid + no OWNER): crashed: ' + e.message);
+    failures += 1;
+  }
+}
+
 // Summary
 if (failures > 0) {
   console.log('CONTEXT-GUARD TESTS FAILED: ' + failures);
