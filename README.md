@@ -80,11 +80,11 @@ Multi-agent orchestration buys quality with tokens. Anthropic's engineering team
 
 **Self-improving playbook** - after each session the orchestrator records what worked, what failed, and which employees performed, each entry citing the artifact that proves it. The playbook goes into lead prompts before every THINK phase.
 
-**[Codebase graph](scripts/codegraph.js)** - on repos with 200+ tracked files, `scripts/codegraph.js update` builds a commit-keyed ranked symbol map into `.company/codegraph/`. `status` reports FRESH or STALE against origin. `map` emits a token-budgeted symbol map for lead prompts and refuses to emit a stale map unless `--allow-stale` labels it, so planning never runs on unmarked stale structure. This is a ranked symbol map by reference count, not semantic search.
+**[Codebase graph](scripts/codegraph.js)** - on repos with >200 tracked files, `scripts/codegraph.js update` builds a commit-keyed ranked symbol map into `.company/codegraph/`. `status` reports FRESH or STALE against origin. `map` emits a token-budgeted symbol map for lead prompts and refuses to emit a stale map unless `--allow-stale` labels it, so planning never runs on unmarked stale structure. This is a ranked symbol map by reference count, not semantic search.
 
 **[Observability dashboard](#dashboard)** - a zero-dependency localhost dashboard for live token cost, active agents, criteria progress, and more. Auto-starts with `/company` and shows its URL in the cycle banner.
 
-**Skill routing** - leads route tasks to installed skills (/review, /investigate, /qa, /ship, /browse, /secure-phase, /gsd-debug, /gsd-plan-phase) and the installer fetches the packs on first run. When a skill is missing, workers fall back to raw tools and note SKILL-MISSING.
+**Skill routing** - leads route tasks to installed skills (/review, /investigate, /qa, /ship, /browse, /secure-phase, /gsd-debug, /gsd-plan-phase, /humanizer, /canary, /qa-only, /benchmark, /codex, /retro) and the installer fetches the packs on first run. /humanizer runs on every public-facing output before it ships. When a skill is missing, workers fall back to raw tools and note SKILL-MISSING.
 
 **Restart with verified continuation** - `/company restart` quiesces background agents, commits in-flight work as draft PRs, and emits one verified continuation prompt for a fresh session. A Source-Verifier, Devil's Advocate, and Completeness pass re-derive every SHA and CI claim before it emits.
 
@@ -109,6 +109,8 @@ graph LR
 At THINK the CEO orchestrator reads the goal and the playbook, activates the needed employees, and writes delegation contracts in dependency order. At EXECUTE, workers run in parallel waves and append FINDING plus SOURCE lines to their findings files. At VERIFY, the Internal Reviewer re-runs every VERIFY-WITH command, and the Devil's Advocate attacks every passing result. If anything fails, COMPRESS writes a cycle briefing with the diagnosis and the loop continues. The stop guard enforces the outer condition: no exit until every criterion passes with reproduced evidence.
 
 A contract's path: the lead writes it, `check-contracts.js` gates it, the worker runs it (VERIFY-WITH last, before reporting), the reviewer re-runs VERIFY-WITH independently, and the result lands in the employee's findings file.
+
+**Roles:** CEO (orchestrator), Internal Reviewer (`company-reviewer`), Devil's Advocate (`company-critic`), Digest Writer (`company-digest`). The Digest Writer runs in the COMPRESS step between cycles and compresses the finished cycle into the next cycle's briefing, so the orchestrator never carries raw worker output in its own context.
 
 **Installed hooks** (registered in `~/.claude/settings.json` by the installer):
 
@@ -170,7 +172,8 @@ A zero-dependency localhost dashboard. It shows live token usage per model, appr
 The preamble auto-starts the dashboard when you run `/company` and prints its URL. Running `/company` again detects the already-running server and skips the launch. Set `COMPANY_DASHBOARD_PORT` to use a different port (default 7777).
 
 ```bash
-node scripts/dashboard.js [--port 7777] [--company-dir PATH]
+# repo clone / development only - installed users: the preamble auto-starts via the path below
+node ~/.claude/skills/company/scripts/dashboard.js [--port 7777] [--company-dir PATH]
 ```
 
 Open http://127.0.0.1:7777. The page polls every 3 seconds. The dashboard binds 127.0.0.1 only, reads local files, and sends nothing anywhere. Price-saved figures are approximate: computed from API list prices and labelled notional on subscription plans.
