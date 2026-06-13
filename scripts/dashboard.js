@@ -68,9 +68,15 @@ function resolveCompanyDir() {
   const flag = argValue('--company-dir');
   if (flag) return path.resolve(flag);
   if (process.env.COMPANY_DIR) return path.resolve(process.env.COMPANY_DIR);
-  const local = path.resolve('.company');
-  if (fs.existsSync(local)) return local;
-  return path.join(os.homedir(), '.company');
+  const cwdDir = path.resolve('.company');
+  const homeDir = path.join(os.homedir(), '.company');
+  // Prefer the dir that holds OWNER (the real active run) to avoid cwd-drift.
+  const cwdHasOwner = fs.existsSync(path.join(cwdDir, 'OWNER'));
+  const homeHasOwner = fs.existsSync(path.join(homeDir, 'OWNER'));
+  // cwd/.company wins when it has OWNER (project-local run, or both have OWNER).
+  if (cwdHasOwner) return cwdDir;
+  if (homeHasOwner) return homeDir;
+  return cwdDir; // new-run default: preserves original single-project behavior
 }
 const COMPANY_DIR = resolveCompanyDir();
 

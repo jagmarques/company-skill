@@ -9,7 +9,22 @@
 const fs = require('fs');
 const path = require('path');
 
-const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
+// Resolve companyDir robustly: COMPANY_DIR env wins; else prefer the dir that holds
+// OWNER (the real active run); fall back to cwd/.company (new-run default).
+// Prevents cwd-drift when the orchestrator cd's into a repo mid-run.
+function resolveCompanyDir() {
+  if (process.env.COMPANY_DIR) return process.env.COMPANY_DIR;
+  const home = process.env.HOME || '';
+  const cwdDir = path.join(process.cwd(), '.company');
+  const homeDir = path.join(home, '.company');
+  const cwdHasOwner = fs.existsSync(path.join(cwdDir, 'OWNER'));
+  const homeHasOwner = home && fs.existsSync(path.join(homeDir, 'OWNER'));
+  // cwd/.company wins when it has OWNER (project-local run, or both have OWNER).
+  if (cwdHasOwner) return cwdDir;
+  if (homeHasOwner) return homeDir;
+  return cwdDir; // new-run default: preserves original single-project behavior
+}
+const companyDir = resolveCompanyDir();
 if (!fs.existsSync(companyDir)) process.exit(0);
 
 // Only sessions listed in OWNER are acted on. A foreign session that shares the

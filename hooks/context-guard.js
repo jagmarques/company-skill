@@ -63,7 +63,22 @@ const transcriptPath = typeof stdinData.transcript_path === 'string' ? stdinData
 
 // Session scoping: same logic as stop-guard.
 // Only act for sessions in .company/OWNER. Absent/empty OWNER = gate all (legacy).
-const companyDir = process.env.COMPANY_DIR || path.join(process.cwd(), '.company');
+// Resolve companyDir robustly: COMPANY_DIR env wins; else prefer the dir that holds
+// OWNER (the real active run); fall back to cwd/.company (new-run default).
+// Prevents cwd-drift when the orchestrator cd's into a repo mid-run.
+function resolveCompanyDir() {
+  if (process.env.COMPANY_DIR) return process.env.COMPANY_DIR;
+  const home = process.env.HOME || '';
+  const cwdDir = path.join(process.cwd(), '.company');
+  const homeDir = path.join(home, '.company');
+  const cwdHasOwner = fs.existsSync(path.join(cwdDir, 'OWNER'));
+  const homeHasOwner = home && fs.existsSync(path.join(homeDir, 'OWNER'));
+  // cwd/.company wins when it has OWNER (project-local run, or both have OWNER).
+  if (cwdHasOwner) return cwdDir;
+  if (homeHasOwner) return homeDir;
+  return cwdDir; // new-run default: preserves original single-project behavior
+}
+const companyDir = resolveCompanyDir();
 const ownerPath = path.join(companyDir, 'OWNER');
 const cancelPath = path.join(companyDir, 'CANCEL');
 
