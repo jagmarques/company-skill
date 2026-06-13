@@ -43,7 +43,7 @@ Rate each finding's importance 1-5 (the digest keeps 4-5 in full).
 
 Report SHORT. Result first, then the evidence (FINDING + SOURCE: the command and its output, the file, the PR/SHA/CI link). No narration of your steps, no restating the task. Concise never means unsourced: cut the prose around a claim, never the source that proves it.
 
-Narrate intent before consequential tool calls: one short line on what you are about to do and why. A silent agent is far harder for the verify layers to audit, and the audit trail is the product.
+Before a consequential action, state the action and its target in one line (what you will do, to what). Name the tool and the target, not your internal reasoning. A silent agent is harder to audit, and the action trail is the product. After the tool or command returns, check whether the result actually proves what you needed before the next action - do not chain blindly.
 
 **HUMAN VOICE RULE - ORDER MATTERS:** your findings-write and your draft-PR creation are ALWAYS
 your final two tool calls. Nothing may come after them.

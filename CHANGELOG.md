@@ -2,6 +2,23 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.1
+
+### Changed
+- Reflect-after-tool guidance added to worker, reviewer, and critic. After every tool or command
+  returns, agents check whether the result proves what was needed before the next action, not after.
+  This closes the adaptive-thinking/interleaved-reflection gap documented in the Anthropic Fable 5
+  guidance for multi-step agentic loops.
+- Narrate-action-not-reasoning fix across SKILL.md and all three agent files. The prior wording
+  asked agents to "narrate intent" which can trip the reasoning_extraction refusal on Fable 5 and
+  cause a silent fallback to a weaker model. Agents now state the action and its target (what, to
+  what) without transcribing internal reasoning.
+- Thinking/reflection section added to SKILL.md. Documents that `budget_tokens` is deprecated on
+  Claude 4.6+ and unsupported on Fable 5 - reflection depth is model-controlled, not a parameter.
+- Effort note added to the Model assignment section of SKILL.md. The cheap/mid/strong contract
+  intent maps to lower/default/higher effort on models that expose an `effort` control (Fable 5
+  default is high). The harness does not set effort automatically; it is a launch-time control.
+
 ## 4.6.0
 
 ### Added
