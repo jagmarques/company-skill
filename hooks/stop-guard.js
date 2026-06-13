@@ -66,7 +66,7 @@ function staleNote(p) {
 // No company running
 if (!fs.existsSync(goalPath) && !fs.existsSync(criteriaPath)) process.exit(0);
 
-// Cancel signal: persistent human exit - present means stop is allowed anytime; remove to resume; a new goal clears it
+// Persistent human exit. CANCEL present allows the stop. The human removes it to resume.
 if (fs.existsSync(cancelPath)) {
   process.exit(0);
 }
