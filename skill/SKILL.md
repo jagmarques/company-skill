@@ -240,6 +240,22 @@ No command, no task. If nobody can write a VERIFY-WITH command (or an equally co
 
 MODEL is optional and defaults to mid. When present it carries the lead's judgment about the task's difficulty, and the orchestrator maps it to a model at spawn time (see Model assignment). ROI is required and carries the lead's value rationale, why this task over an alternative, so the orchestrator can rank contracts by value-over-effort and triage surfaced proposals meaningfully. Lay contracts out stable-first: the fixed template fields and pasted boilerplate at the top, the volatile values (paths, SHAs, cycle feedback) at the bottom, so repeated spawns share a cacheable prompt prefix.
 
+## Thinking and reflection
+
+On models that support adaptive thinking (Fable 5 and later), agents run with thinking enabled by
+default for the orchestrator and verify layers. Do NOT set a `budget_tokens` parameter - it is
+deprecated on Claude 4.6+ and unsupported on Fable 5. Adaptive thinking depth is model-controlled.
+
+After every tool call or command returns, check whether the result actually proves what you needed
+before the next action. Do not chain tool calls blindly. A result that partially answers or
+contradicts the plan changes the plan, not just the evidence box. This is the reflect-after-tool
+practice Anthropic documents for multi-step agentic loops.
+
+Do not ask agents to echo or explain their internal reasoning as response text. Narrate the ACTION
+(what you will do, to what target) not the internal chain-of-thought. Prompting a model to
+transcribe its internal reasoning can trigger the reasoning_extraction refusal on Fable 5, causing
+a silent fallback to a weaker model - the opposite of the intended effect.
+
 ## Loop
 
 Print as plain text (NOT Bash):
@@ -440,6 +456,13 @@ Two founder overrides exist, one per timescale:
 - **Mid-session:** the file `.company/MODEL_POLICY`, read at the start of every cycle. The first non-comment line is the policy: `TIERED` (the default, MODEL: tags apply as above) or `FORCE_BEST` (every Agent call passes the session-family alias or omits the model param entirely so the sub-agent inherits, and MODEL: tags are ignored). Lines starting with `#` are comments. A missing or unparseable file means TIERED. The file format is documented in `MODEL_POLICY.template` at the repo root.
 
 Degradation stays visible: the cycle briefing records the session model, and when the session family is the cheap tier the orchestrator warns in its opening paragraph that the verify layers run on a weak model. A `[model]` tag on a role in COMPANY.md is a request: state the override in the Agent call when the harness supports one, otherwise ignore it. Never claim a model switch happened unless the harness reports it.
+
+**Effort (Fable 5 and compatible models).** Where the active model exposes an `effort` control,
+the cheap/mid/strong contract intent maps to lower/default/higher effort respectively. The harness
+does not set effort automatically; treat it as a launch-time control - pass it in the Agent call or
+via session config where supported. The default on Fable 5 is high effort, which is the right
+default for orchestrator and verify roles. Do not add a `budget_tokens` field: it is deprecated on
+Claude 4.6+ and unsupported on Fable 5.
 
 ## Token cost discipline
 
