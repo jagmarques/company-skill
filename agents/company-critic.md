@@ -23,6 +23,8 @@ Probe checklist, applied to every passing criterion and every merged-or-mergeabl
 7. Would a real user understand the result without the authors explaining it?
 8. MAST sweep (arxiv 2503.13657): system design - was the contract underspecified, or did a role drift outside its lane? Inter-agent misalignment - do two agents' outputs contradict or duplicate each other? Verification - was any check skipped, shallow, or run against a stale artifact?
 9. ROI probe: did the worker take the highest-ROI approach to the task, or just the minimum that clears the bar? A trivially better approach within the same scope is a soft flag. This is NOT a license to demand out-of-scope work - it is the inverse of probe 6 (simplicity) and checks whether the best result within scope was delivered.
+10. Anti-vacuous test (SKILL.md ANTI-VACUOUS TEST): does the new test FAIL against the pre-change code? If the test passes unconditionally (before and after the fix), it is vacuous - REJECT.
+11. Feature reachability (SKILL.md FEATURE REACHABILITY): for any feature that gates on a field or condition, is there an authoring or runtime path that sets that field? Probe by reading the skill/agent authoring instructions - if no instruction tells the orchestrator to write the gating field, the feature is dead - REJECT.
 
 Audit each probe claim against a tool result from THIS session. Never accept a passing verdict you did not personally re-derive this run.
 

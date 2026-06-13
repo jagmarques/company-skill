@@ -46,17 +46,17 @@ GOAL -> THINK -> EXECUTE (parallel waves) -> VERIFY -> Done?
 
 ## Dashboard
 
-The dashboard starts automatically when you run `/company` and prints its URL in the cycle banner. Each session gets its own port (7000-7999, derived from the session id). Open it in any browser.
+The dashboard starts automatically when you run `/company` and prints its URL in the cycle banner and the Claude Code status line. Each session gets its own port (7000-7999, derived from the session id). Open it in any browser.
 
 ```
-http://127.0.0.1:7421   <- your session's link, printed at startup
+http://127.0.0.1:7421   <- your session's link, printed at startup and in the status bar
 ```
 
 What you see, panel by panel:
 
-**Context fill** - the live fill percentage, computed with the same formula the context-guard uses. When the session hits the restart threshold (default 50%), the bar shows "restart due" so you can see the gate before it fires.
+**Context fill** - the live fill percentage, computed with the same formula the context-guard uses. When the session hits the restart threshold (default 50%), the bar shows "restart due" so you can see the gate before it fires. A toggle in the dashboard controls the auto-restart per session.
 
-**Delegation tree** - SVG tree of orchestrator, department leads, and workers. Click any node to expand its current task and status. Zoom with +/- buttons or the mouse wheel. Drag to pan. Fullscreen button expands it. Zero external JS libraries.
+**Delegation tree** - SVG tree of orchestrator, department leads, and workers, with org-chart context filled from COMPANY.md. Click any node to expand its current task and status. Zoom with +/- buttons or the mouse wheel. Drag to pan. Fullscreen button expands it. Zero external JS libraries.
 
 **Active agents** - centered live table of every agent the orchestrator has spawned this session, with model, status, and token count.
 
@@ -69,28 +69,34 @@ The dashboard binds 127.0.0.1 only, reads local files, and sends nothing anywher
 
 Multi-agent orchestration buys quality with tokens. /company's answer to the token cost: spend strong-model tokens only where they buy quality, and report the bill every cycle.
 
-**Tiered model delegation.** Each delegation contract carries a `MODEL: cheap|mid|strong` tag. The orchestrator maps the tag to a model at spawn time. Override every sub-agent with `CLAUDE_CODE_SUBAGENT_MODEL` at launch, or write `FORCE_BEST` into `.company/MODEL_POLICY` mid-run.
+**Tiered model delegation.** Each delegation contract carries a `MODEL: cheap|mid|strong` tag. The orchestrator maps the tag to a model at spawn time. Effort scales with both ROI and stakes - high-stakes or high-value work gets heavier spawn. Override every sub-agent with `CLAUDE_CODE_SUBAGENT_MODEL` at launch, or write `FORCE_BEST` into `.company/MODEL_POLICY` mid-run.
 
 **Per-cycle cost reporting.** Every cycle produces a `COST:` line in the briefing and a `cycles/cycle-{N}-cost.json` artifact.
 
 **Prompt caching.** Agent prompts are laid out stable-first so repeated spawns hit a shared cache prefix.
+
+**Fable 5 / adaptive thinking.** On models that support adaptive thinking (Fable 5 and later), the orchestrator and verify layers run with thinking enabled. No `budget_tokens` param - reflection depth is model-controlled.
 
 
 ## Key features
 
 **Stop guard** - blocks session exit until every criterion has `passes: true` and reproduced evidence. Malformed state blocks rather than fails open. Deleting a hard criterion blocks instead of unlocking. [34-check test](tests/stop-guard.test.js).
 
-**Context-fill guard** - a second Stop hook forces `/company restart` once context reaches the threshold (default 50%). Reads the model id from the transcript to detect the context window. [37-check test](tests/context-guard.test.js).
+**Context-fill guard** - a second Stop hook forces `/company restart` once context reaches the threshold (default 50%). Reads the model id from the transcript to detect the context window. Per-session auto-restart toggle in the dashboard. [37-check test](tests/context-guard.test.js).
 
 **Delegation contracts** - a task does not exist without a filled contract. `check-contracts.js` rejects missing fields, vacuous VERIFY-WITH commands, invalid MODEL tiers, and cyclic dependencies. [17-check test](tests/check-contracts.test.js).
 
-**Double verification** - the Internal Reviewer re-runs every VERIFY-WITH command independently. The Devil's Advocate attacks everything marked passing. Two independent reproductions are evidence. One transcript is a hypothesis.
+**Multi-level verification.** The Internal Reviewer re-runs every VERIFY-WITH command independently. The Devil's Advocate attacks everything marked passing. For criteria tagged `stakes: "high"` in `criteria.json` (irreversible action, security surface, or public-facing claim), the critic runs in three fresh contexts with distinct lenses - correctness, security, reproducibility - and unanimous ACCEPT is required. Normal criteria keep the single critic. The completeness probe enumerates every surface the GOAL names and auto-rejects any unchecked one.
+
+**Design judge-panel.** For criteria tagged `kind: design`, the lead may emit up to three contracts from materially different angles plus one synthesis contract, reserved for genuine design forks.
 
 **Git isolation** - workers never push to main and never merge. Every code change lands as a draft PR. The merge gate is yours.
 
 **Pre-push secret scan** - workers run `scripts/secret-scan.js` before any `git push`. Exit 1 blocks the push.
 
 **Codebase graph** - on repos with >200 tracked files, `scripts/codegraph.js` builds a commit-keyed ranked symbol map into `.company/codegraph/` for lead prompts.
+
+**Status-line link** - `scripts/statusline.js` appends the per-session dashboard URL to the Claude Code status bar, enforced idempotently on every `/company` run.
 
 
 ## Commands
