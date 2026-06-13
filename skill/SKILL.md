@@ -43,7 +43,7 @@ echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 --no-single-br
 echo "Skill install pass done"
 ```
 
-The installs are PINNED to reviewed upstream refs (gstack@1.0.5, get-shit-done-cc@1.42.3, trailofbits/skills @ c070b9b) so a poisoned new upstream release does not auto-run on a /company invocation, consistent with PR #25 pinning the GitHub Actions to SHAs. Bump these pins deliberately after reviewing each upstream's changelog; they go stale on purpose rather than auto-pulling unreviewed code. Set `COMPANY_SKILLS=latest` to opt back into floating `@latest`/HEAD installs. The install is best-effort either way (failures are tolerated and noted).
+The installs are PINNED to reviewed upstream refs (gstack@1.0.5, get-shit-done-cc@1.42.3, trailofbits/skills @ c070b9b) so a poisoned new upstream release does not auto-run on a /company invocation, consistent with PR #25 pinning the GitHub Actions to SHAs. Bump these pins deliberately after reviewing each upstream's changelog. They go stale on purpose rather than auto-pulling unreviewed code. Set `COMPANY_SKILLS=latest` to opt back into floating `@latest`/HEAD installs. The install is best-effort either way (failures are tolerated and noted).
 
 If an install fails, continue anyway. Any task whose assigned skill turns out to be missing falls back to raw tools and notes `SKILL-MISSING` in its findings. Never loop retrying a Skill call that does not exist.
 
