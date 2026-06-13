@@ -5,7 +5,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 fail=0
 
 note_fail() {
@@ -56,12 +56,16 @@ for f in agents/company-lead.md agents/company-reviewer.md agents/company-critic
     echo "ok: no model field in $f"
   fi
 done
-grep -q '^model: sonnet$' agents/company-worker.md \
-  && echo "ok: worker pins sonnet alias" \
-  || note_fail "agents/company-worker.md must pin model: sonnet"
-grep -q '^model: haiku$' agents/company-digest.md \
-  && echo "ok: digest pins haiku alias" \
-  || note_fail "agents/company-digest.md must pin model: haiku"
+if grep -q '^model: sonnet$' agents/company-worker.md; then
+  echo "ok: worker pins sonnet alias"
+else
+  note_fail "agents/company-worker.md must pin model: sonnet"
+fi
+if grep -q '^model: haiku$' agents/company-digest.md; then
+  echo "ok: digest pins haiku alias"
+else
+  note_fail "agents/company-digest.md must pin model: haiku"
+fi
 if grep -hE '^model:' agents/*.md | grep -vE '^model: (sonnet|haiku)$'; then
   note_fail "agent model field outside the allowed aliases sonnet/haiku"
 else
