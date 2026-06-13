@@ -720,6 +720,94 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   }
 }
 
+// --- Hard ceiling cases (non-vacuous: case HC1 fails against pre-fix code) ---
+
+// Case HC1 (NON-VACUOUS): toggle OFF + fill 0.85 -> BLOCK (hard ceiling overrides the toggle).
+// Pre-fix code: enforceRestart:false at 85% exits(0) -> "allow". Post-fix: ceiling blocks it.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-hc1');
+  const cfg = { sessions: { 'owner-session-hc1': { enforceRestart: false } } };
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), JSON.stringify(cfg));
+  // 200K window: 170000 tokens = 85%
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 170000 });
+  const out = check('HC1: toggle OFF + 85% BLOCKS (hard ceiling overrides toggle)', d, t, 'block', {
+    session_id: 'owner-session-hc1',
+  });
+  // Also verify the reason mentions HARD CEILING and says toggle cannot suppress it.
+  caseNo += 1;
+  if (out.indexOf('HARD CEILING') !== -1 && out.indexOf('toggle') !== -1) {
+    console.log('ok: case ' + caseNo + ' HC1 reason names HARD CEILING and toggle');
+  } else {
+    console.log('FAIL case ' + caseNo + ' HC1 reason missing HARD CEILING/toggle text: ' + out);
+    failures += 1;
+  }
+}
+
+// Case HC2: toggle OFF + fill 0.60 -> ALLOW (toggle still works below the ceiling).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-hc2');
+  const cfg = { sessions: { 'owner-session-hc2': { enforceRestart: false } } };
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), JSON.stringify(cfg));
+  // 200K window: 120000 = 60% (above soft 50%, below hard 80%)
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('HC2: toggle OFF + 60% ALLOWS (below ceiling, toggle works)', d, t, 'allow', {
+    session_id: 'owner-session-hc2',
+  });
+}
+
+// Case HC3: toggle ON (or absent) + fill 0.55 -> BLOCK (soft restart unchanged).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-hc3');
+  // 200K window: 110000 = 55% (above soft 50%)
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 110000 });
+  check('HC3: toggle absent + 55% BLOCKS (soft restart unchanged)', d, t, 'block', {
+    session_id: 'owner-session-hc3',
+  });
+}
+
+// Case HC4: fill 0.85 + fresh debate artifact present -> ALLOW (restart can still complete).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-hc4');
+  // First call at 85% to write the state file (block).
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 170000 });
+  check('HC4: setup block at 85%', d, t, 'block', { session_id: 'owner-session-hc4' });
+  // Write a fresh debate artifact (after the state file) and call again -> ALLOW.
+  const stateFile = path.join(d, '.context-guard-state');
+  writeDebateArtifact(d, 'owner-session-hc4', stateFile);
+  check('HC4: 85% + fresh debate artifact ALLOWS (restart not bricked)', d, t, 'allow', {
+    session_id: 'owner-session-hc4',
+  });
+}
+
+// Case HC5: fill 0.40 -> ALLOW (below soft threshold).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-hc5');
+  // 200K window: 80000 = 40%
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 80000 });
+  check('HC5: 40% ALLOWS (below soft threshold)', d, t, 'allow', {
+    session_id: 'owner-session-hc5',
+  });
+}
+
+// Case HC6: COMPANY_CONTEXT_HARD_CEILING=0.7 + fill 0.72 + toggle OFF -> BLOCK.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-hc6');
+  const cfg = { sessions: { 'owner-session-hc6': { enforceRestart: false } } };
+  fs.writeFileSync(path.join(d, 'context-guard-config.json'), JSON.stringify(cfg));
+  // 200K window: 144000 = 72% (above env ceiling 70%)
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 144000 });
+  check('HC6: env HARD_CEILING=0.7 + 72% + toggle OFF -> BLOCK', d, t, 'block', {
+    session_id: 'owner-session-hc6',
+    env: { COMPANY_CONTEXT_HARD_CEILING: '0.7' },
+  });
+}
+
 // Summary
 if (failures > 0) {
   console.log('CONTEXT-GUARD TESTS FAILED: ' + failures);

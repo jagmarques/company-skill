@@ -2,6 +2,23 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.6
+
+### Fixed
+- Per-session `enforceRestart:false` toggle could suppress a restart even at 85%+ context fill,
+  which let context sail past a safe limit indefinitely. A hard ceiling (default 80%, env
+  `COMPANY_CONTEXT_HARD_CEILING`) now blocks unconditionally regardless of the toggle. The
+  ceiling must be >= the soft threshold; the env var accepts a fraction (0.8) or percent (80).
+  The block reason clearly states the hard ceiling and that the toggle cannot suppress it.
+  The de-loop/debate-artifact release path is unaffected so a legitimate restart can still
+  complete even above the ceiling.
+
+### Added
+- Six new test cases in `tests/context-guard.test.js` (HC1-HC6) covering: toggle-off above
+  ceiling blocks (non-vacuous - fails against pre-fix code), toggle-off below ceiling allows,
+  soft-threshold unchanged, restart not bricked above ceiling, below-threshold allows, and
+  the env override lowers the ceiling.
+
 ## 4.6.5
 
 ### Fixed
