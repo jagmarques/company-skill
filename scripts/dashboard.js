@@ -2100,11 +2100,10 @@ function renderCycles(s) {
   thead.appendChild(hr);
   table.appendChild(thead);
   const tbody = el('tbody');
+  // Show counts and dates as headlines; drop bare byte sizes as primary values.
   const rows = [
-    ['cycle dirs', String(c.cycleDirs ?? '?')],
-    ['briefings', (c.briefingCount ?? '?') + ' (' + fmtBytes(c.briefingBytes) + ')'],
-    ['playbook', fmtBytes(c.playbookBytes) + (c.playbookGrowthBytes ? ' (+' + fmtBytes(c.playbookGrowthBytes) + ')' : '')],
-    ['active tasks', fmtBytes(c.activeTasksBytes)],
+    ['cycles run', String(c.cycleDirs ?? '?')],
+    ['briefings logged', String(c.briefingCount ?? '?')],
     ['last compaction', c.lastCompaction ? new Date(c.lastCompaction).toLocaleString() : 'none seen'],
     ['compactions observed', String(c.compactionsObserved ?? 0)],
   ];
