@@ -9,7 +9,7 @@
 //
 // External anchor (3d + 4d fix): enforcement state is mirrored to
 // ~/.claude/company-guard-state/<key>/ where key = sha256(realpath(companyDir)).slice(0,16).
-// The external lock is authoritative for criteria.lock; the external owners log is
+// The external lock is authoritative for criteria.lock, the external owners log is
 // append-only and makes OWNER rewrite-eviction impossible. Degrades gracefully
 // when ~/.claude is unwritable (falls back to .company-only behavior, no crash).
 
@@ -36,7 +36,7 @@ function getAnchorDir() {
   }
 }
 
-// Lazily create the anchor dir; returns null if ~/.claude is unwritable (degrade path).
+// Lazily create the anchor dir, returns null if ~/.claude is unwritable (degrade path).
 function ensureAnchorDir(anchorDir) {
   if (!anchorDir) return null;
   try {
@@ -85,7 +85,7 @@ if (sessionId) {
             }
           } catch (e) {}
         }
-        // Session is an owner - do NOT exit 0 here; fall through to the criteria check.
+        // Session is an owner - do NOT exit 0 here, fall through to the criteria check.
       } else {
         // Session is not in current OWNER. Check external owners log before treating as foreign.
         let inExternalOwners = false;
@@ -164,7 +164,7 @@ if (fs.existsSync(criteriaPath)) {
 
   // criteria.lock: 3d fix - external lock is authoritative.
   // If the external lock exists, it is the source of truth (rm .company/criteria.lock
-  // becomes a no-op; .company lock is healed from the external copy). If the external
+  // becomes a no-op, .company lock is healed from the external copy). If the external
   // lock is missing this is a genuine first sight.
   const lockPath = path.join(companyDir, 'criteria.lock');
   const extLockPath = anchorDir ? path.join(anchorDir, 'lock') : null;
