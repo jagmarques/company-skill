@@ -167,8 +167,9 @@ function refreshCcusage(sub) {
 }
 
 // ---------- pricing (per MTok list prices) ----------
-// pin = current top tier since Fable 5 is pulled; revert to fable when it returns
-const TOP_TIER_BASELINE = 'claude-opus-4-8';
+// Baseline derives from the live session model so it auto-corrects across Fable<->Opus transitions.
+// Interim fallback: claude-opus-4-8 (current top tier while Fable 5 is suspended).
+const INTERIM_TOP_TIER = 'claude-opus-4-8';
 
 function priceFor(model) {
   const m = String(model || '').toLowerCase();
@@ -202,7 +203,9 @@ function summarizeBreakdowns(breakdowns) {
   return { models, input: inT, output: outT, cacheCreation: cw, cacheRead: cr, total: inT + outT + cw + cr, cost };
 }
 
-function computeSavings(win) {
+function computeSavings(win, sessionModel) {
+  // Use session model as the top-tier baseline so rates auto-correct when Fable returns.
+  const baseline = (sessionModel && sessionModel.trim()) ? sessionModel : INTERIM_TOP_TIER;
   if (!win || !win.models.length) {
     return {
       tieringSaved: null, cacheSaved: null, bestModel: null, estimated: false,
@@ -210,7 +213,7 @@ function computeSavings(win) {
     };
   }
   let estimated = false;
-  const topPrice = priceFor(TOP_TIER_BASELINE);
+  const topPrice = priceFor(baseline);
   const hypothetical =
     (win.input * topPrice.i + win.output * topPrice.o +
       win.cacheCreation * topPrice.w + win.cacheRead * topPrice.r) / 1e6;
@@ -225,7 +228,7 @@ function computeSavings(win) {
   }
   const tieringSaved = Math.max(0, hypothetical - actualCost);
   return {
-    tieringSaved, cacheSaved, topTierModel: TOP_TIER_BASELINE, estimated,
+    tieringSaved, cacheSaved, topTierModel: baseline, estimated,
     caveat: 'Approximate: computed from API list prices. On a subscription plan these dollars are notional.'
   };
 }
@@ -333,24 +336,60 @@ function parseAgentDetail(file, st) {
   const hit = agentParseCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs) return hit.val;
   const entries = parseLines(cachedReadFile(file, AGENT_TAIL));
-  let model = null, tokens = 0, toolCalls = 0;
+  let model = null, toolCalls = 0, lastUsage = null;
   for (const e of entries) {
     if (e.type !== 'assistant' || !e.message) continue;
     if (e.message.model) model = e.message.model;
-    const u = e.message.usage;
-    if (u) {
-      tokens += (u.input_tokens || 0) + (u.output_tokens || 0) +
-        (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    }
+    // Track the most-recent usage block only (cache_read accumulates per turn; sum inflates ~73x).
+    if (e.message.usage) lastUsage = e.message.usage;
     const content = Array.isArray(e.message.content) ? e.message.content : [];
     for (const c of content) if (c.type === 'tool_use') toolCalls++;
   }
+  // Tokens from the last assistant turn: matches computeContextFill's last-turn approach.
+  const u = lastUsage || {};
+  const tokens = (u.input_tokens || 0) + (u.output_tokens || 0) +
+    (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   const val = { model, tokens, toolCalls };
   agentParseCache.set(file, { mtimeMs: st.mtimeMs, val });
   return val;
 }
 
-const ACTIVE_MS = 20000;
+// Max age for a file-mtime-based fallback; content-based detection is primary.
+const ACTIVE_MS = 600000; // 10 min fallback - agents may pause for many minutes waiting on tools
+
+// Read the last ~8 KB of a JSONL to extract the last stop_reason and last timestamp.
+// Returns { stopReason: string|null, lastTs: number|null }
+function agentTailStatus(jsonlPath) {
+  const TAIL = 8192;
+  let text = '';
+  try {
+    const st = fs.statSync(jsonlPath);
+    const size = st.size;
+    const start = Math.max(0, size - TAIL);
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    const fd = fs.openSync(jsonlPath, 'r');
+    try { fs.readSync(fd, buf, 0, len, start); } finally { fs.closeSync(fd); }
+    text = buf.toString('utf8');
+  } catch (_) { return { stopReason: null, lastTs: null }; }
+  let stopReason = null;
+  let lastTs = null;
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch (_) { continue; }
+    if (!lastTs && obj.timestamp) lastTs = new Date(obj.timestamp).getTime() || null;
+    if (!stopReason) {
+      const m = obj.message || {};
+      if (m.stop_reason) { stopReason = m.stop_reason; }
+    }
+    if (stopReason && lastTs) break;
+  }
+  return { stopReason, lastTs };
+}
+
 function collectAgents(projDir, sessionId) {
   const subDir = path.join(projDir, sessionId, 'subagents');
   const out = [];
@@ -373,16 +412,35 @@ function collectAgents(projDir, sessionId) {
     const st = cachedStat(jsonl);
     const mtimeMs = st ? st.mtimeMs : 0;
     const ageMs = now - mtimeMs;
-    const active = st ? ageMs < ACTIVE_MS : false;
+
+    // Status is driven by stop_reason, not mtime. tool_use = still waiting on a tool result
+    // (may be paused for many minutes); end_turn or any terminal reason = finished.
+    // mtime is only used to distinguish 'running' (file just updated) vs 'finishing' (idle pause).
+    const { stopReason, lastTs } = st ? agentTailStatus(jsonl) : { stopReason: null, lastTs: null };
+    const isToolUsePaused = stopReason === 'tool_use';
+    const isEndTurn = stopReason === 'end_turn';
+    // active = not finished per content; never gated on mtime so long pauses don't drop the agent.
+    const active = st ? (!isEndTurn && stopReason !== null ? true : (stopReason === null && ageMs < ACTIVE_MS)) : false;
+    // Status: tool_use -> running (regardless of age); end_turn -> finished; unknown -> use mtime.
+    let status;
+    if (!st) { status = 'unknown'; }
+    else if (isEndTurn) { status = 'finished'; }
+    else if (isToolUsePaused) { status = 'running'; }
+    else if (stopReason !== null) { status = 'finished'; }
+    else if (ageMs < 30000) { status = 'running'; }
+    else if (ageMs < ACTIVE_MS) { status = 'finishing'; }
+    else { status = 'finished'; }
+
     const agent = {
       id: id.replace(/^agent-/, '').slice(0, 8),
       agentType: meta.agentType || 'agent',
       description: String(meta.description || '').slice(0, 120),
       active,
-      status: !st ? 'unknown' : active ? (ageMs < 10000 ? 'running' : 'finishing') : 'finished',
+      status,
       mtimeMs
     };
-    if (active && st) {
+    if (st) {
+      // Always populate detail fields so the table shows data for all agents.
       const d = parseAgentDetail(jsonl, st);
       agent.model = d.model;
       agent.tokens = d.tokens;
@@ -438,9 +496,11 @@ function buildCompanyState() {
   } catch (_) { /* ignore */ }
   const items = ((criteria && criteria.criteria) || []).map((c) => ({
     id: c.id,
-    description: String(c.description || '').slice(0, 140),
+    // Full description sent; client truncates in collapsed view, wraps in expanded view
+    description: String(c.description || '').slice(0, 500),
     passes: !!c.passes,
-    evidence: !!(c.evidence && String(c.evidence).trim())
+    // Send evidence text (truncated to 400 chars) so expanded view can show it
+    evidence: (c.evidence && String(c.evidence).trim()) ? String(c.evidence).slice(0, 400) : null
   }));
 
   const goal = cachedReadFile(path.join(COMPANY_DIR, 'GOAL.md'));
@@ -558,7 +618,58 @@ function computeContextFill(transcriptFile, overrideModel) {
   return { used, window: contextWindow, fill, threshold, modelId: lastModelId };
 }
 
-// ---------- MUST-FIX 3: org tree driven from live agents primarily ----------
+// ---------- COMPANY.md org chart parser ----------
+// Returns { departments: [{ name, lead, roles: [{ name, isLead }] }] }
+function parseCompanyMd() {
+  // Resolve COMPANY.md: env COMPANY_DIR first, else project cwd, else ~/.company
+  const candidates = [
+    path.join(COMPANY_DIR, 'COMPANY.md'),
+    path.resolve('COMPANY.md'),
+  ];
+  let text = null;
+  for (const p of candidates) {
+    text = cachedReadFile(p);
+    if (text) break;
+  }
+  if (!text) return { departments: [] };
+
+  const departments = [];
+  let currentDept = null;
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    // ## heading = new department; strip parenthetical metadata (e.g. "Growth (added 2026-06-09)")
+    if (/^##\s+/.test(line)) {
+      const raw = line.replace(/^##\s+/, '').trim();
+      const deptName = raw.replace(/\s*\([^)]*\).*$/, '').trim();
+      currentDept = { name: deptName, lead: null, roles: [] };
+      departments.push(currentDept);
+      continue;
+    }
+    // Bullet line = a role entry (- **Name** - desc or - Name: desc or - Name, desc)
+    if (/^[-*]\s+/.test(line) && currentDept) {
+      const body = line.replace(/^[-*]\s+/, '').replace(/\*\*/g, '');
+      // Role name = text before first comma, dash, or colon; strip trailing parenthetical metadata
+      const nameMatch = body.match(/^([^,\-:]+)/);
+      if (!nameMatch) continue;
+      let roleName = nameMatch[1].replace(/\s*\([^)]*\).*$/, '').trim();
+      // Strip trailing "Lead" prefix markers like "Lead:"
+      const isExplicitLead = /^lead:/i.test(roleName) || / lead$/i.test(roleName);
+      if (/^lead:/i.test(roleName)) roleName = roleName.replace(/^lead:/i, '').trim();
+      // CEO is always tier-0, skip from dept roles
+      if (/^ceo$/i.test(roleName)) continue;
+      const role = { name: roleName, isLead: isExplicitLead };
+      currentDept.roles.push(role);
+      // First role in dept becomes the lead if none marked explicit
+      if (!currentDept.lead) currentDept.lead = role;
+      if (isExplicitLead && currentDept.lead !== role) currentDept.lead = role;
+    }
+  }
+  // Remove departments with no roles
+  return { departments: departments.filter(d => d.roles.length > 0) };
+}
+
+// ---------- MUST-FIX 3 (revised): org tree from COMPANY.md + live agent overlay ----------
 function getActiveCycleNumber() {
   // Read active cycle from roster header or latest cycle-N-briefing.md
   const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';
@@ -594,21 +705,29 @@ function parseCycleTaskFile(filepath) {
   return tasks;
 }
 
+// Score how well a live agent name matches a COMPANY.md role name (higher = better)
+function roleMatchScore(agentStr, roleName) {
+  const a = agentStr.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim();
+  const r = roleName.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim();
+  if (a === r) return 100;
+  if (a.includes(r) || r.includes(a)) return 60;
+  // word-level overlap score
+  const aw = new Set(a.split(/\s+/).filter(Boolean));
+  const rw = r.split(/\s+/).filter(Boolean);
+  let hits = 0;
+  for (const w of rw) if (aw.has(w) && w.length > 2) hits++;
+  return hits > 0 ? hits * 20 : 0;
+}
+
 function buildOrgTree(projDir, sessionId, liveAgents) {
-  // Tier 0: orchestrator
-  const orchNode = {
-    id: 'orchestrator',
-    tier: 0,
-    label: 'CEO',
-    status: 'active',
-    dept: null
-  };
+  // Tier 0: orchestrator (CEO)
+  const orchNode = { id: 'orchestrator', tier: 0, label: 'CEO', status: 'active', dept: null };
 
   const activeCycle = getActiveCycleNumber();
   const cyclesDir = path.join(COMPANY_DIR, 'cycles');
 
-  // Load enrichment from matching cycle task files (active cycle only)
-  const enrichment = new Map(); // dept -> [{task, employee, surfaces}]
+  // Load enrichment from active cycle task files: dept -> [{task, employee, surfaces}]
+  const enrichment = new Map();
   try {
     const files = fs.readdirSync(cyclesDir);
     for (const f of files) {
@@ -623,97 +742,141 @@ function buildOrgTree(projDir, sessionId, liveAgents) {
     }
   } catch (_) { /* ignore */ }
 
-  // Build dept map from live agents first (MUST-FIX 3: live data drives the tree)
-  const deptMap = new Map(); // dept -> { tasks[], liveAgents[] }
-  for (const agent of liveAgents) {
-    const dept = agent.agentType || 'agent';
-    if (!deptMap.has(dept)) deptMap.set(dept, { tasks: [], liveAgents: [] });
-    deptMap.get(dept).liveAgents.push(agent);
-  }
+  // Load active-roster.md employee names for mapping
+  const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';
 
-  // Add departments from task enrichment that have no live agents
-  for (const [dept, tasks] of enrichment) {
-    if (!deptMap.has(dept)) deptMap.set(dept, { tasks: [], liveAgents: [] });
-    deptMap.get(dept).tasks = tasks;
-  }
+  // Parse COMPANY.md for the canonical org structure
+  const { departments } = parseCompanyMd();
 
   const nodes = [orchNode];
   const edges = [];
 
-  for (const [dept, { tasks, liveAgents: deptAgents }] of deptMap) {
-    const leadId = 'lead-' + dept;
-    nodes.push({
-      id: leadId,
-      tier: 1,
-      label: dept,
-      dept,
-      status: deptAgents.length > 0 ? 'active' : 'idle',
-      liveCount: deptAgents.length
-    });
-    edges.push({ from: 'orchestrator', to: leadId });
+  // Track which live agents have been mapped to named role nodes
+  const mappedAgentIds = new Set();
 
-    // Tier-2: live agents in this dept
-    for (const agent of deptAgents) {
-      const nodeId = 'agent-' + agent.id;
-      // Try to enrich from task file by matching employee name
-      let enrichedTask = null;
-      for (const t of tasks) {
-        const emp = t.employee.toLowerCase();
-        const agentType = (agent.agentType || '').toLowerCase();
-        const desc = (agent.description || '').toLowerCase();
-        if (emp && (agentType.includes(emp) || desc.includes(emp) || emp.includes(agentType))) {
-          enrichedTask = t;
-          break;
-        }
-      }
-      nodes.push({
-        id: nodeId,
-        tier: 2,
-        dept,
-        label: agent.agentType,
-        employee: agent.agentType,
-        task: enrichedTask ? enrichedTask.task : agent.description.slice(0, 80),
-        surfaces: enrichedTask ? enrichedTask.surfaces : null,
-        status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
-        currentAction: agent.description,
-        model: agent.model || null,
-        tokens: agent.tokens || 0,
-        toolCalls: agent.toolCalls || 0,
-        runtimeMs: agent.runtimeMs || null
+  if (departments.length > 0) {
+    // Render the COMPANY.md org chart with live-status overlay
+    for (const dept of departments) {
+      const lead = dept.lead;
+      const leadId = 'dept-' + dept.name.replace(/\s+/g, '-').toLowerCase().slice(0, 30);
+
+      // Map live agents onto this department's roles by name similarity
+      // DEPARTMENT-SCOPED: only use agents whose type/desc matches this dept's role names
+      const deptRoleNames = dept.roles.map(r => r.name);
+      const deptLiveAgents = liveAgents.filter((agent) => {
+        if (mappedAgentIds.has(agent.id)) return false;
+        const agentStr = (agent.agentType || '') + ' ' + (agent.description || '');
+        // Score against any role in this department
+        return deptRoleNames.some(rn => roleMatchScore(agentStr, rn) >= 20);
       });
-      edges.push({ from: leadId, to: nodeId });
+
+      // Find the best-matched live agent per named role
+      const roleAgentMap = new Map(); // roleName -> agent|null
+      for (const role of dept.roles) {
+        let best = null, bestScore = 0;
+        for (const agent of deptLiveAgents) {
+          if (mappedAgentIds.has(agent.id)) continue;
+          const agentStr = (agent.agentType || '') + ' ' + (agent.description || '');
+          const score = roleMatchScore(agentStr, role.name);
+          if (score > bestScore) { best = agent; bestScore = score; }
+        }
+        roleAgentMap.set(role.name, bestScore >= 20 ? best : null);
+        if (best && bestScore >= 20) mappedAgentIds.add(best.id);
+      }
+
+      // Compute lead node status from whether any dept agent is live
+      const anyDeptLive = dept.roles.some(r => roleAgentMap.get(r.name) !== null);
+      const leadAgent = roleAgentMap.get(lead.name);
+      const leadStatus = leadAgent ? (leadAgent.active ? 'active' : 'idle') : (anyDeptLive ? 'active' : 'idle');
+
+      // Tier-1: department lead node
+      nodes.push({
+        id: leadId,
+        tier: 1,
+        label: lead.name,
+        dept: dept.name,
+        status: leadStatus,
+        liveCount: dept.roles.filter(r => roleAgentMap.get(r.name) !== null).length,
+        description: 'Lead of ' + dept.name
+      });
+      // CEO -> dept lead (only CEO connects to leads)
+      edges.push({ from: 'orchestrator', to: leadId });
+
+      // Tier-2: other roles in this department (non-lead roles)
+      for (const role of dept.roles) {
+        if (role === lead) continue; // lead is already tier-1
+        const roleId = leadId + '-' + role.name.replace(/\s+/g, '-').toLowerCase().slice(0, 25);
+        const agent = roleAgentMap.get(role.name);
+        const rStatus = agent ? (agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done') : 'idle';
+        nodes.push({
+          id: roleId,
+          tier: 2,
+          dept: dept.name,
+          label: role.name,
+          employee: role.name,
+          status: rStatus,
+          currentAction: agent ? agent.description : null,
+          model: agent ? (agent.model || null) : null,
+          tokens: agent ? (agent.tokens || 0) : 0,
+          toolCalls: agent ? (agent.toolCalls || 0) : 0,
+          runtimeMs: agent ? (agent.runtimeMs || null) : null
+        });
+        // Dept lead -> role node (dept-scoped: lead never connects to other dept's roles)
+        edges.push({ from: leadId, to: roleId });
+      }
     }
 
-    // Tier-2 from task files with no live counterpart (show as idle)
-    for (const t of tasks) {
-      const hasLive = deptAgents.some((a) => {
-        const emp = t.employee.toLowerCase();
-        const agentType = (a.agentType || '').toLowerCase();
-        return agentType.includes(emp) || emp.includes(agentType);
-      });
-      if (!hasLive) {
-        const nodeId = 'task-' + dept + '-' + t.employee.replace(/\s+/g, '-').slice(0, 20);
+    // Unmapped live agents: show under a "General" node beneath CEO
+    const unmapped = liveAgents.filter(a => !mappedAgentIds.has(a.id));
+    if (unmapped.length > 0) {
+      const generalId = 'dept-general';
+      const alreadyHasGeneral = nodes.some(n => n.id === generalId);
+      if (!alreadyHasGeneral) {
+        nodes.push({ id: generalId, tier: 1, label: 'General', dept: 'General', status: 'active', liveCount: unmapped.length });
+        edges.push({ from: 'orchestrator', to: generalId });
+      }
+      for (const agent of unmapped) {
+        const nodeId = 'agent-' + agent.id;
         nodes.push({
-          id: nodeId,
-          tier: 2,
-          dept,
-          label: t.employee,
-          employee: t.employee,
-          task: t.task,
-          surfaces: t.surfaces,
-          status: 'idle',
-          currentAction: null,
-          model: null,
-          tokens: 0,
-          toolCalls: 0,
-          runtimeMs: null
+          id: nodeId, tier: 2, dept: 'General',
+          label: (agent.agentType || 'agent').slice(0, 20),
+          employee: agent.agentType,
+          status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
+          currentAction: agent.description,
+          model: agent.model || null,
+          tokens: agent.tokens || 0,
+          toolCalls: agent.toolCalls || 0,
+          runtimeMs: agent.runtimeMs || null
+        });
+        edges.push({ from: generalId, to: nodeId });
+      }
+    }
+  } else {
+    // Fallback: generic dept-based tree when COMPANY.md is missing/unreadable
+    const deptMap = new Map();
+    for (const agent of liveAgents) {
+      const dept = agent.agentType || 'agent';
+      if (!deptMap.has(dept)) deptMap.set(dept, []);
+      deptMap.get(dept).push(agent);
+    }
+    for (const [dept, deptAgents] of deptMap) {
+      const leadId = 'lead-' + dept;
+      nodes.push({ id: leadId, tier: 1, label: dept, dept, status: deptAgents.length > 0 ? 'active' : 'idle', liveCount: deptAgents.length });
+      edges.push({ from: 'orchestrator', to: leadId });
+      for (const agent of deptAgents) {
+        const nodeId = 'agent-' + agent.id;
+        nodes.push({
+          id: nodeId, tier: 2, dept, label: agent.agentType, employee: agent.agentType,
+          status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
+          currentAction: agent.description, model: agent.model || null,
+          tokens: agent.tokens || 0, toolCalls: agent.toolCalls || 0, runtimeMs: agent.runtimeMs || null
         });
         edges.push({ from: leadId, to: nodeId });
       }
     }
   }
 
-  const note = 'Leads are logical planners. Only the orchestrator spawns agents; tier-2 nodes are the workers the orchestrator ran.';
+  const note = 'Logically: CEO delegates to dept leads; leads own their team. Physically the orchestrator spawns all agents.';
   return { nodes, edges, note, activeCycle };
 }
 
@@ -772,11 +935,15 @@ function refreshRegistryLastSeen() {
   writeRegistryEntry(SESSION_ID, ownEntry);
 }
 
-// Remove own entry on clean exit or signal
+// Remove own entry only if the stored pid matches this process (prune-own-pid-only).
+// A second server for the same session id must not wipe a live entry it does not own.
 function pruneOwnRegistryEntry() {
   if (!SESSION_ID) return;
   try {
     const reg = readRegistry();
+    const stored = reg.sessions[SESSION_ID];
+    // Only remove if the entry still belongs to this pid
+    if (!stored || stored.pid !== process.pid) return;
     delete reg.sessions[SESSION_ID];
     fs.writeFileSync(REGISTRY_FILE, JSON.stringify(reg, null, 2));
   } catch (_) { /* ignore */ }
@@ -784,6 +951,18 @@ function pruneOwnRegistryEntry() {
 process.on('exit', pruneOwnRegistryEntry);
 process.on('SIGTERM', () => { pruneOwnRegistryEntry(); process.exit(0); });
 process.on('SIGINT',  () => { pruneOwnRegistryEntry(); process.exit(0); });
+
+// Heartbeat: every 15s re-assert own entry so a transient prune self-heals.
+// unref() so this interval does not keep the process alive on its own.
+if (SESSION_ID && ownEntry) {
+  const _heartbeat = setInterval(() => {
+    if (!SESSION_ID || !ownEntry) return;
+    ownEntry.lastSeen = new Date().toISOString();
+    // Use the atomic write helper; re-adds the full entry if it went missing
+    writeRegistryEntry(SESSION_ID, ownEntry);
+  }, 15000);
+  _heartbeat.unref();
+}
 
 // ---------- /api/state ----------
 function buildState() {
@@ -884,7 +1063,7 @@ function buildState() {
     resolvedSessionId,
     warning,
     tokens: { available: !!(daily || session || blocks), today, session: sessionInfo, block },
-    savings: computeSavings(today),
+    savings: computeSavings(today, orch.sessionModel),
     context: contextFill,
     agents: activeAgents.map((a) => ({
       agentType: a.agentType, model: a.model || null, description: a.description,
@@ -977,14 +1156,15 @@ tr:last-child td { border-bottom: none; }
 .feed .kind { font-weight: 600; width: 3.5rem; flex-shrink: 0; }
 .feed .kind.spawn { color: var(--cyan); }
 .feed .kind.finish { color: var(--accent); }
-.ctx-gauge-wrap { position: relative; height: 8px; border-radius: var(--radius-pill); overflow: visible; background: var(--hover); margin: 0.5rem 0 1.5rem; }
+.ctx-card { margin-top: 2.5rem; }
+.ctx-gauge-wrap { position: relative; height: 10px; border-radius: var(--radius-pill); overflow: visible; background: var(--hover); margin: 1.25rem 0 2rem; }
 .ctx-gauge-bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: var(--radius-pill); transition: width 0.3s; }
 .ctx-gauge-bar.green { background: var(--accent); }
 .ctx-gauge-bar.amber { background: #d4a017; }
 .ctx-gauge-bar.red { background: var(--red); }
-.ctx-tick { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--red); border-radius: 1px; }
-.ctx-tick-label { position: absolute; top: 14px; font-size: 11px; color: var(--red); white-space: nowrap; transform: translateX(-50%); font-family: var(--font-mono); }
-.ctx-row { display: flex; align-items: baseline; gap: 1rem; margin-top: 0.25rem; }
+.ctx-tick { position: absolute; top: -4px; width: 2px; height: 18px; background: var(--red); border-radius: 1px; }
+.ctx-tick-label { position: absolute; top: 17px; font-size: 11px; color: var(--red); white-space: nowrap; transform: translateX(-50%); font-family: var(--font-mono); }
+.ctx-row { display: flex; align-items: baseline; gap: 1rem; margin-top: 0.5rem; }
 .ctx-pct { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
 .ctx-pct.green { color: var(--accent); }
 .ctx-pct.amber { color: var(--amber); }
@@ -1035,7 +1215,7 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
     <div class="caveat" id="caveat"></div>
   </section>
 
-  <div class="card">
+  <div class="card ctx-card">
     <h2>Context fill</h2>
     <div id="ctx-fill"></div>
   </div>
@@ -1078,7 +1258,7 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
 
   <div class="card">
     <h2>Cycles and memory</h2>
-    <div class="kv" id="cycles"></div>
+    <div id="cycles"></div>
   </div>
 
   <footer>
@@ -1532,6 +1712,20 @@ function setupTreeInteractions() {
   const svg = $('tree');
   const wrap = $('tree-svg-wrap');
 
+  // Zoom floor = reset/natural dimensions (MIN_ZOOM == reset scale; user cannot zoom out past it)
+  function minZoomW() { return parseFloat(svg.dataset.naturalW) || 900; }
+  function minZoomH() { return parseFloat(svg.dataset.naturalH) || 500; }
+
+  function clampToFloor() {
+    // Clamp vbW/vbH to at most the natural (reset) dimensions
+    if (treeView.vbW > minZoomW()) {
+      const cx = treeView.vbX + treeView.vbW / 2;
+      const cy = treeView.vbY + treeView.vbH / 2;
+      treeView.vbW = minZoomW(); treeView.vbH = minZoomH();
+      treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    }
+  }
+
   // Mouse wheel zoom (MUST-FIX 5: set isInteracting to suppress poll re-apply)
   wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -1541,6 +1735,8 @@ function setupTreeInteractions() {
     const cy = treeView.vbY + treeView.vbH / 2;
     treeView.vbW *= factor; treeView.vbH *= factor;
     treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    // Enforce zoom floor: cannot zoom out beyond reset/natural size
+    clampToFloor();
     svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
     saveTreeView();
     clearTimeout(wrap._iTimer);
@@ -1584,12 +1780,15 @@ function setupTreeInteractions() {
     const cx = treeView.vbX + treeView.vbW / 2, cy = treeView.vbY + treeView.vbH / 2;
     treeView.vbW *= 1.25; treeView.vbH *= 1.25;
     treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    // Enforce zoom floor: MIN_ZOOM == reset scale, cannot zoom out past it
+    clampToFloor();
     svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
     saveTreeView();
   });
   $('zoom-reset').addEventListener('click', () => {
-    const nW = parseFloat(svg.dataset.naturalW) || 900;
-    const nH = parseFloat(svg.dataset.naturalH) || 500;
+    // Reset = natural (floor) dimensions; this is also the minimum zoom level
+    const nW = minZoomW();
+    const nH = minZoomH();
     treeView.vbX = 0; treeView.vbY = 0; treeView.vbW = nW; treeView.vbH = nH;
     svg.setAttribute('viewBox', '0 0 ' + nW + ' ' + nH);
     saveTreeView();
@@ -1615,8 +1814,21 @@ function renderFeed(s) {
   }
 }
 
-// Contract 5: compact criteria bar + click-to-expand, module-level expand flag
-let criteriaOpen = false;
+// Per-criterion expand: sessionStorage set of expanded item ids, keyed per session
+function criteriaStorageKey() {
+  return 'critExpanded:' + (_treeSessionId || 'unbound');
+}
+
+function loadCritExpanded() {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(criteriaStorageKey()) || '[]'));
+  } catch (_) { return new Set(); }
+}
+
+function saveCritExpanded(set) {
+  try { sessionStorage.setItem(criteriaStorageKey(), JSON.stringify([...set])); } catch (_) {}
+}
+
 let _lastCriteria = null;
 
 function renderCriteria(s) {
@@ -1635,43 +1847,94 @@ function renderCriteria(s) {
   bar.appendChild(fill);
   root.appendChild(bar);
 
-  const toggle = el('button', 'crit-toggle');
-  toggle.textContent = (criteriaOpen ? 'v hide detail' : '> show detail');
-  toggle.addEventListener('click', () => {
-    criteriaOpen = !criteriaOpen;
-    renderCriteria({ criteria: _lastCriteria });
-  });
-  root.appendChild(toggle);
+  // Per-item collapsible list: each criterion is a short one-line bullet
+  const expanded = loadCritExpanded();
+  const list = el('div');
+  list.style.marginTop = '0.5rem';
 
-  if (criteriaOpen) {
-    const detail = el('div');
-    for (const item of c.items || []) {
-      const row = el('div', 'crit');
-      row.appendChild(el('span', 'dot' + (item.passes ? ' pass' : '')));
-      row.appendChild(el('span', null, item.id + '. ' + item.description));
-      row.appendChild(el('span', 'muted mono', item.evidence ? 'evidence' : ''));
-      detail.appendChild(row);
+  for (const item of c.items || []) {
+    const itemId = String(item.id);
+    const isOpen = expanded.has(itemId);
+
+    const wrap = el('div');
+    wrap.style.borderBottom = '1px solid var(--line)';
+    wrap.style.padding = '0.2rem 0';
+
+    // Collapsed row: dot + number + truncated title + toggle caret
+    const header = el('button');
+    header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;background:none;border:none;cursor:pointer;width:100%;text-align:left;padding:0.25rem 0;font-size:13.5px;';
+    const dot = el('span', 'dot' + (item.passes ? ' pass' : ''));
+    dot.style.flexShrink = '0';
+    header.appendChild(dot);
+    const titleSpan = el('span');
+    titleSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    titleSpan.textContent = itemId + '. ' + item.description;
+    header.appendChild(titleSpan);
+    const caret = el('span', 'muted');
+    caret.style.cssText = 'font-size:11px;flex-shrink:0;padding-left:0.5rem;';
+    caret.textContent = isOpen ? 'v' : '>';
+    header.appendChild(caret);
+    wrap.appendChild(header);
+
+    // Expanded detail: full description + evidence, wrapping freely
+    if (isOpen) {
+      const detail = el('div');
+      detail.style.cssText = 'padding:0.4rem 0 0.5rem 1.3rem;font-size:13px;white-space:normal;word-break:break-word;';
+      const descP = el('p');
+      descP.style.marginBottom = '0.25rem';
+      descP.textContent = item.description;
+      detail.appendChild(descP);
+      if (item.evidence) {
+        const evP = el('p', 'muted mono');
+        evP.style.cssText = 'font-size:12px;white-space:normal;word-break:break-word;';
+        evP.textContent = 'evidence: ' + (typeof item.evidence === 'string' ? item.evidence : JSON.stringify(item.evidence));
+        detail.appendChild(evP);
+      }
+      wrap.appendChild(detail);
     }
-    root.appendChild(detail);
+
+    header.addEventListener('click', () => {
+      // Load fresh from storage so concurrent tabs don't clobber each other
+      const current = loadCritExpanded();
+      if (current.has(itemId)) current.delete(itemId);
+      else current.add(itemId);
+      saveCritExpanded(current);
+      // Re-render only the criteria section, passing cached state
+      if (_lastCriteria) renderCriteria({ criteria: _lastCriteria });
+    });
+
+    list.appendChild(wrap);
   }
+  root.appendChild(list);
 }
 
 function renderCycles(s) {
   const root = $('cycles');
   root.replaceChildren();
   const c = s.cycles || {};
-  const add = (label, value) => {
-    const d = el('div');
-    d.appendChild(el('span', null, label));
-    d.appendChild(el('b', null, value));
-    root.appendChild(d);
-  };
-  add('cycle dirs', String(c.cycleDirs ?? '?'));
-  add('briefings', (c.briefingCount ?? '?') + ' (' + fmtBytes(c.briefingBytes) + ')');
-  add('playbook', fmtBytes(c.playbookBytes) + (c.playbookGrowthBytes ? ' (+' + fmtBytes(c.playbookGrowthBytes) + ')' : ''));
-  add('active tasks', fmtBytes(c.activeTasksBytes));
-  add('last compaction', c.lastCompaction ? new Date(c.lastCompaction).toLocaleString() : 'none seen');
-  add('compactions observed', String(c.compactionsObserved ?? 0));
+  const table = el('table', 'center');
+  const thead = el('thead');
+  const hr = el('tr');
+  ['metric', 'value'].forEach((h) => hr.appendChild(el('th', null, h)));
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = el('tbody');
+  const rows = [
+    ['cycle dirs', String(c.cycleDirs ?? '?')],
+    ['briefings', (c.briefingCount ?? '?') + ' (' + fmtBytes(c.briefingBytes) + ')'],
+    ['playbook', fmtBytes(c.playbookBytes) + (c.playbookGrowthBytes ? ' (+' + fmtBytes(c.playbookGrowthBytes) + ')' : '')],
+    ['active tasks', fmtBytes(c.activeTasksBytes)],
+    ['last compaction', c.lastCompaction ? new Date(c.lastCompaction).toLocaleString() : 'none seen'],
+    ['compactions observed', String(c.compactionsObserved ?? 0)],
+  ];
+  for (const [label, value] of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'muted', label));
+    tr.appendChild(el('td', 'mono', value));
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  root.appendChild(table);
 }
 
 function renderBurn(s) {
