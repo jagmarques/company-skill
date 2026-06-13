@@ -17,6 +17,7 @@
 // WHAT IT CLEARS:
 //   ~/.claude/company-guard-state/<key>/   - entire external anchor dir
 //   .company/criteria.lock                 - local lock snapshot
+//   .company/.context-guard-state          - context-guard de-loop state (session-scoped)
 //   where key = sha256(realpath(COMPANY_DIR)).slice(0,16)
 //
 // USAGE: node <skill-scripts-dir>/reset-company-guard.js
@@ -68,6 +69,20 @@ if (fs.existsSync(lockPath)) {
   }
 } else {
   console.log('reset-company-guard: no criteria.lock at ' + lockPath + ' (already clean)');
+}
+
+// Remove .context-guard-state so a new goal never inherits a prior session's de-loop state.
+const ctxStatePath = path.join(companyDir, '.context-guard-state');
+if (fs.existsSync(ctxStatePath)) {
+  try {
+    fs.unlinkSync(ctxStatePath);
+    cleared.push('.context-guard-state: ' + ctxStatePath);
+  } catch (e) {
+    console.error('reset-company-guard: failed to remove ' + ctxStatePath + ': ' + e.message);
+    process.exit(1);
+  }
+} else {
+  console.log('reset-company-guard: no .context-guard-state at ' + ctxStatePath + ' (already clean)');
 }
 
 if (cleared.length > 0) {

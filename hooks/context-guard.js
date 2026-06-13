@@ -134,25 +134,33 @@ const fill = used / contextWindow;
 if (fill < threshold) process.exit(0);
 
 // Fill is at or above threshold. Check the de-loop state file before blocking.
-// De-loop: record the used-token count when we last fired. If the count has not
-// grown since the last fire, allow one stop (the model already emitted the restart
-// and is trying to stop - re-blocking would deadlock. Advance the state so the
-// NEXT stop that shows more tokens fires again.
-const stateDir = path.join(companyDir);
-const stateFile = path.join(stateDir, '.context-guard-state');
+// De-loop state is SESSION-SCOPED: stored as JSON { "sessionId": "<id>", "tokens": <n> }.
+// A state file from a different session (or a legacy bare-number file) is treated as
+// no prior fire for this session (lastFiredTokens = -1). This prevents a prior
+// session's high-water mark from suppressing a first-fire in a fresh session.
+// Within a session: first fire blocks + writes { sessionId, tokens }; subsequent stops
+// with grown tokens require the debate artifact; a token DROP re-arms unconditionally.
+const stateFile = path.join(companyDir, '.context-guard-state');
 
 let lastFiredTokens = -1;
 try {
   const raw = fs.readFileSync(stateFile, 'utf8').trim();
-  const parsed = parseInt(raw, 10);
-  if (!isNaN(parsed)) lastFiredTokens = parsed;
+  // Attempt JSON parse first (session-scoped format).
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch (e) {}
+  if (parsed && typeof parsed === 'object' && parsed.sessionId === sessionId &&
+      typeof parsed.tokens === 'number') {
+    // State belongs to the current session: honor it.
+    lastFiredTokens = parsed.tokens;
+  }
+  // Legacy bare-number OR a different session's state: treat as fresh (lastFiredTokens = -1).
 } catch (e) {}
 
 if (lastFiredTokens >= 0) {
-  // Fired once already. Re-arm unconditionally when tokens dropped below the fire
-  // count (a genuine context reset happened). Otherwise gate on the debate artifact.
+  // Fired once already this session. Re-arm unconditionally when tokens dropped below
+  // the fire count (a genuine context reset happened). Otherwise gate on the debate artifact.
   if (used < lastFiredTokens) {
-    try { fs.writeFileSync(stateFile, String(-1)); } catch (e) {}
+    try { fs.writeFileSync(stateFile, JSON.stringify({ sessionId: sessionId, tokens: -1 })); } catch (e) {}
     process.exit(0);
   }
 
@@ -179,7 +187,7 @@ if (lastFiredTokens >= 0) {
 
   if (artifactFresh) {
     // Debate recorded. Allow the stop and re-arm for the next cycle.
-    try { fs.writeFileSync(stateFile, String(-1)); } catch (e) {}
+    try { fs.writeFileSync(stateFile, JSON.stringify({ sessionId: sessionId, tokens: -1 })); } catch (e) {}
     // Best-effort: remove the consumed artifact so a stale one cannot release
     // a future fire. Failure is ignored (artifact absence is also safe).
     try { fs.unlinkSync(artifactPath); } catch (e) {}
@@ -187,7 +195,6 @@ if (lastFiredTokens >= 0) {
   }
 
   // No fresh artifact. Keep blocking until the debate is recorded.
-  const pctNow = Math.round((used / detectWindow(lastModelId)) * 100);
   const sessionTagNow = sessionId ? ' [session ' + sessionId + ']' : '';
   console.log(JSON.stringify({
     decision: 'block',
@@ -199,8 +206,10 @@ if (lastFiredTokens >= 0) {
   process.exit(0);
 }
 
-// First fire: record the count and block once.
-try { fs.writeFileSync(stateFile, String(used)); } catch (e) {}
+// First fire for this session: record { sessionId, tokens } and block once.
+try {
+  fs.writeFileSync(stateFile, JSON.stringify({ sessionId: sessionId, tokens: used }));
+} catch (e) {}
 
 const pct = Math.round(fill * 100);
 const threshPct = Math.round(threshold * 100);
