@@ -2099,18 +2099,28 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ sessions: reg.sessions }));
     return;
   }
-  // POST /api/restart-toggle: flip the per-session enforceRestart toggle.
-  // Body: { "sessionId": "<id>" } (optional; falls back to the bound SESSION_ID).
+  // POST /api/restart-toggle: flip enforceRestart for the bound SESSION_ID only.
+  // Body is ignored for session selection; only the bound session may be toggled.
   // Returns: { "sessionId": "<id>", "enforceRestart": true|false }
   if (req.method === 'POST' && url === '/api/restart-toggle') {
+    // Reject bodies larger than 4 KB to avoid memory accumulation from large payloads.
+    const MAX_BODY = 4096;
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
+    let bodyTooLarge = false;
+    req.on('data', (chunk) => {
+      if (bodyTooLarge) return;
+      body += chunk;
+      if (body.length > MAX_BODY) { bodyTooLarge = true; body = ''; }
+    });
     req.on('end', () => {
-      let sid = SESSION_ID;
-      try {
-        const parsed = JSON.parse(body || '{}');
-        if (parsed.sessionId && typeof parsed.sessionId === 'string') sid = parsed.sessionId;
-      } catch (_) { /* ignore */ }
+      if (bodyTooLarge) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'request body too large' }));
+        return;
+      }
+      // Always use the server-bound SESSION_ID; ignore any sessionId in the body.
+      // Accepting a caller-supplied id would let any tab flip another session's toggle.
+      const sid = SESSION_ID;
       if (!sid) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'no session id bound to this dashboard' }));
