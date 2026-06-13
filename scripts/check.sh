@@ -162,6 +162,14 @@ else
   note_fail "hooks-owner decision matrix failed"
 fi
 
+# 11d. companyDir resolution: no COMPANY_DIR set, exercises cwd-vs-home preference
+#      and the clean-OWNER gate (BLOCKER-1 non-vacuous test).
+if node tests/companydir-resolution.test.js; then
+  echo "ok: companydir resolution matrix"
+else
+  note_fail "companydir resolution matrix failed"
+fi
+
 # 12. Contract checker matrix: field and DEPENDS-ON validation must hold.
 if node tests/check-contracts.test.js; then
   echo "ok: contract checker matrix"

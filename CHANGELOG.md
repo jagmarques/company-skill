@@ -2,6 +2,19 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.4
+
+### Fixed
+- companyDir resolution in all 4 hooks (context-guard, stop-guard, precompact, session-restore)
+  and in scripts/restart-debate.js, scripts/reset-company-guard.js, scripts/dashboard.js.
+  Previously every file used `process.env.COMPANY_DIR || path.join(process.cwd(), '.company')`,
+  so when the orchestrator cd'd into a repo the hooks read the wrong .company dir, splitting
+  run state (OWNER, criteria.json, NEXT.md, cycles/ all live in ~/.company but hooks read
+  repo/.company). Fix: COMPANY_DIR env wins; else check cwd/.company for an OWNER file, then
+  $HOME/.company for an OWNER file, and prefer the dir that contains OWNER. If both contain
+  OWNER, cwd/.company wins (project-local run is not hijacked by $HOME). If neither contains
+  OWNER, fall back to cwd/.company (new-run default, preserving original behavior).
+
 ## 4.6.3
 
 ### Changed

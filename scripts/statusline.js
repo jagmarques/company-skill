@@ -25,8 +25,28 @@ const os = require('os');
 let input = '';
 try { input = fs.readFileSync(0, 'utf8'); } catch (_) {}
 
-// Resolve the company state directory.
-const dir = process.env.COMPANY_DIR || path.join(os.homedir(), '.company');
+// Resolve companyDir using the same clean-OWNER-preference logic as the hooks.
+// A blank/garbled OWNER does NOT qualify a dir as the active run (BLOCKER-1 fix).
+function hasCleanOwner(ownerPath) {
+  try {
+    const lines = fs.readFileSync(ownerPath, 'utf8')
+      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    return lines.length > 0 &&
+      lines.every(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
+  } catch (e) { return false; }
+}
+function resolveDir() {
+  if (process.env.COMPANY_DIR) return process.env.COMPANY_DIR;
+  const home = process.env.HOME || os.homedir();
+  const cwdDir = path.join(process.cwd(), '.company');
+  const homeDir = home ? path.join(home, '.company') : null;
+  const cwdHasOwner = hasCleanOwner(path.join(cwdDir, 'OWNER'));
+  const homeHasOwner = homeDir && hasCleanOwner(path.join(homeDir, 'OWNER'));
+  if (cwdHasOwner) return cwdDir;
+  if (homeHasOwner) return homeDir;
+  return home ? path.join(home, '.company') : cwdDir;
+}
+const dir = resolveDir();
 
 // --- Chaining: run the prior statusline command if one is stored ---
 const baseCfgPath = path.join(dir, 'statusline-base.json');
