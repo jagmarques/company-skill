@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const CHECKER = path.join(__dirname, '..', 'scripts', 'check-contracts.js');
-const GOOD = 'TASK: a\nEMPLOYEE: e\nSKILL: none\nINPUTS: i\nOUTPUT: o\nDONE-WHEN: d\nVERIFY-WITH: grep -c x file.md\nOUT-OF-SCOPE: s\nDEPENDS-ON: none\n';
+const GOOD = 'TASK: a\nEMPLOYEE: e\nSKILL: none\nINPUTS: i\nOUTPUT: o\nDONE-WHEN: d\nVERIFY-WITH: grep -c x file.md\nOUT-OF-SCOPE: s\nROI: high - unblocks triage ordering\nDEPENDS-ON: none\n';
 let failures = 0, n = 0;
 function run(content) {
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cc-')), 't.md');
@@ -37,5 +37,9 @@ check('8g: "yes done" (vacuous 8-char filler) fails', GOOD.replace('VERIFY-WITH:
 check('8g: "test -f x && echo PASS" (real command) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: test -f x && echo PASS'), 0);
 check('8g: "gh pr view 1" (gh command) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: gh pr view 1'), 0);
 check('8g: "https://x/y" (URL) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: https://x/y'), 0);
+// ROI field: missing ROI fails, empty ROI fails, valid ROI passes.
+check('missing ROI fails', GOOD.replace('ROI: high - unblocks triage ordering\n', ''), 1);
+check('empty ROI fails', GOOD.replace('ROI: high - unblocks triage ordering', 'ROI:'), 1);
+check('valid ROI passes', GOOD, 0);
 if (failures) { console.log('CHECK-CONTRACTS TESTS FAILED: ' + failures); process.exit(1); }
 console.log('ALL CHECK-CONTRACTS TESTS PASSED (' + n + ' checks)');

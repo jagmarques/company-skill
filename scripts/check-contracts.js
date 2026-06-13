@@ -9,7 +9,7 @@ if (!file || !fs.existsSync(file)) { console.error('usage: check-contracts.js <t
 const text = fs.readFileSync(file, 'utf8');
 const blocks = text.split(/\n(?=TASK:)/).filter(b => b.trim().startsWith('TASK:'));
 if (blocks.length === 0) { console.error('no TASK blocks found'); process.exit(1); }
-const FIELDS = ['TASK:', 'EMPLOYEE:', 'SKILL:', 'INPUTS:', 'OUTPUT:', 'DONE-WHEN:', 'VERIFY-WITH:', 'OUT-OF-SCOPE:'];
+const FIELDS = ['TASK:', 'EMPLOYEE:', 'SKILL:', 'INPUTS:', 'OUTPUT:', 'DONE-WHEN:', 'VERIFY-WITH:', 'OUT-OF-SCOPE:', 'ROI:'];
 // DEPENDS-ON is optional. When present it must name existing task numbers and the
 // dependency graph must be acyclic.
 function checkDeps(blocks) {
@@ -50,6 +50,9 @@ blocks.forEach((b, i) => {
   // token, path component, or URL so bare phrases like "yes done" are rejected.
   const VW_RE = /[/.:]|\b(test|grep|node|python3?|gh|git|curl|cat|ls|npm|make|pytest|diff|echo|jq|bash|sh)\b|\$\(|`|\|\||&&/;
   if (b.includes('VERIFY-WITH:') && (vw.length < 8 || !VW_RE.test(vw))) errs.push('VERIFY-WITH is empty or vacuous');
+  // ROI must have non-empty content after the colon so triage has something to sort on.
+  const roi = (b.split('ROI:')[1] || '').split('\n')[0].trim();
+  if (b.includes('ROI:') && roi.length < 3) errs.push('ROI is empty or too short');
   // MODEL is optional (absent means mid). When present the tier must be
   // cheap, mid, or strong, optionally followed by the lead's justification.
   const mm = b.match(/^MODEL:\s*(.*)$/m);
