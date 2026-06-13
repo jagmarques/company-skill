@@ -6,6 +6,12 @@
 
 Your agent stops when it feels done. This makes it stop only when the work is actually done.
 
+<p align="center">
+  <img src="assets/dashboard.png" alt="Company dashboard showing org tree, context gauge, active agents, and criteria" width="900">
+  <br>
+  <em>Live dashboard: org tree, context gauge, agent table, and criteria checklist - auto-starts with every /company run.</em>
+</p>
+
 ```bash
 npx company-skill install
 ```
@@ -44,36 +50,6 @@ The dashboard starts automatically when you run `/company` and prints its URL in
 
 ```
 http://127.0.0.1:7421   <- your session's link, printed at startup
-```
-
-```
-Company dashboard                            updated 3s ago
-
-Context fill  [===========>    ] 68%  restart due at 50%
-              340K / 200K tokens  claude-sonnet-4-6
-
-Company delegation tree              [+] [-] [reset] [fullscreen]
-  +-----------+
-  |    CEO    |         <- click any node to expand
-  +-----------+            its current task and status
-     /      \
-+-------+  +----------+
-|Eng Lead|  |Design Lead|
-+-------+  +----------+
-  |    \
-+----+  +------+
-|Dev1|  |Dev2  |
-+----+  +------+
-
-Active agents
-  Agent             Model           Status   Tokens
-  backend-worker    sonnet-4-6      running  12,340
-  design-worker     haiku-3-5       done     3,120
-
-Criteria                                       [show details]
-  [x] REST endpoints implemented
-  [x] Tests pass (pytest: 42 passed)
-  [ ] Docs updated
 ```
 
 What you see, panel by panel:
