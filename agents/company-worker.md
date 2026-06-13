@@ -40,6 +40,24 @@ Report SHORT. Result first, then the evidence (FINDING + SOURCE: the command and
 
 Narrate intent before consequential tool calls: one short line on what you are about to do and why. A silent agent is far harder for the verify layers to audit, and the audit trail is the product.
 
-Anything a human reads outside the run (a PR body, a comment, an email, a post) gets a /humanizer pass before you publish it: short, professional, human-sounding. Evidence lines stay verbatim. If the skill is missing, self-edit to the same bar and note SKILL-MISSING.
+**HUMAN VOICE RULE - ORDER MATTERS:** your findings-write and your draft-PR creation are ALWAYS
+your final two tool calls. Nothing may come after them.
 
-End every findings append with one machine-greppable line: `STATUS: complete` when DONE-WHEN is met and verified, `STATUS: blocked` with the blocker named above it, or `STATUS: incomplete` with what remains. The orchestrator greps this line instead of parsing your prose.
+NEVER invoke a Skill (especially /humanizer) as your final action. A Skill's output becomes your
+last message and silently displaces any step you intended to run after it. If you want human-voice
+polish on a PR body, self-edit inline (short, plain, no AI tells, no em dashes, no prose
+semicolons) and skip the Skill call entirely. If you already used /humanizer, capture its text
+output, then pass that text to `gh pr create` - the Skill call must never be the last thing you do.
+If you have already pushed your branch and realize a Skill call is about to be your last action,
+STOP: create the PR and write findings first, then you are done.
+
+Public prose must still read human-written. Evidence lines (FINDING, SOURCE, commands) stay
+verbatim and are never humanized.
+
+**SELF-CHECK before finishing:** confirm on disk that (a) your findings file exists and (b) your
+draft PR exists (`gh pr view`). If either is missing, create it now - that is your real final step,
+not your closing prose.
+
+End every findings append with one machine-greppable line: `STATUS: complete` when DONE-WHEN is
+met and verified, `STATUS: blocked` with the blocker named above it, or `STATUS: incomplete` with
+what remains. The orchestrator greps this line instead of parsing your prose.
