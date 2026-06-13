@@ -148,11 +148,13 @@ A contract's path: the lead writes it, `check-contracts.js` gates it, the worker
 
 A zero-dependency localhost dashboard. It shows live token usage per model, approximate cost saved by tiering and caching, active agents, the company hierarchy, criteria progress, and cycle stats.
 
+The preamble auto-starts the dashboard when you run `/company` and prints its URL. Running `/company` again detects the already-running server and skips the launch. Set `COMPANY_DASHBOARD_PORT` to use a different port (default 7777).
+
 ```bash
-node scripts/dashboard.js [--port 7177] [--company-dir PATH]
+node scripts/dashboard.js [--port 7777] [--company-dir PATH]
 ```
 
-Open http://127.0.0.1:7177. The page polls every 3 seconds. The dashboard binds 127.0.0.1 only, reads local files, and sends nothing anywhere. Price-saved figures are approximate: computed from API list prices and labelled notional on subscription plans.
+Open http://127.0.0.1:7777. The page polls every 3 seconds. The dashboard binds 127.0.0.1 only, reads local files, and sends nothing anywhere. Price-saved figures are approximate: computed from API list prices and labelled notional on subscription plans.
 
 
 ## Commands
