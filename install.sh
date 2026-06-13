@@ -42,7 +42,7 @@ done
 
 # Hooks
 mkdir -p "$HOME/.claude/hooks"
-for pair in "stop-guard company-stop-guard" "precompact company-precompact" "session-restore company-session-restore"; do
+for pair in "stop-guard company-stop-guard" "context-guard company-context-guard" "precompact company-precompact" "session-restore company-session-restore"; do
   src="${pair%% *}"
   dest="${pair##* }"
   fetch "$REPO/hooks/$src.js" "$HOME/.claude/hooks/$dest.js" || echo "Warning: failed to download hook $src"
@@ -67,6 +67,7 @@ function ensure(event, marker, entry) {
   if (!present) settings.hooks[event].push(entry);
 }
 ensure('Stop', 'company-stop-guard', { hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-stop-guard.js')}"`, timeout: 10 }] });
+ensure('Stop', 'company-context-guard', { hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-context-guard.js')}"`, timeout: 10 }] });
 ensure('PreCompact', 'company-precompact', { hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-precompact.js')}"`, timeout: 10 }] });
 ensure('SessionStart', 'company-session-restore', { matcher: 'compact', hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-session-restore.js')}"`, timeout: 10 }] });
 fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
@@ -82,7 +83,10 @@ node was not found, so the hook files were copied but NOT registered.
 The hooks need node at runtime anyway, so install node, then add this to
 the "hooks" section of ~/.claude/settings.json (merge with what is there):
 
-  "Stop": [{ "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/company-stop-guard.js\"", "timeout": 10 }] }],
+  "Stop": [
+    { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/company-stop-guard.js\"", "timeout": 10 }] },
+    { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/company-context-guard.js\"", "timeout": 10 }] }
+  ],
   "PreCompact": [{ "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/company-precompact.js\"", "timeout": 10 }] }],
   "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/company-session-restore.js\"", "timeout": 10 }] }]
 

@@ -40,6 +40,7 @@ for (const agent of ['lead', 'worker', 'reviewer', 'critic', 'digest']) {
 
 const hookFiles = {
   'stop-guard.js': 'company-stop-guard.js',
+  'context-guard.js': 'company-context-guard.js',
   'precompact.js': 'company-precompact.js',
   'session-restore.js': 'company-session-restore.js'
 };
@@ -62,6 +63,9 @@ try {
   if (!settings.hooks.Stop.some(h => h.hooks?.some(hh => hh.command?.includes('company-stop-guard')))) {
     settings.hooks.Stop.push({ hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-stop-guard.js')}"`, timeout: 10 }] });
   }
+  if (!settings.hooks.Stop.some(h => h.hooks?.some(hh => hh.command?.includes('company-context-guard')))) {
+    settings.hooks.Stop.push({ hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'company-context-guard.js')}"`, timeout: 10 }] });
+  }
 
   if (!settings.hooks.PreCompact) settings.hooks.PreCompact = [];
   if (!settings.hooks.PreCompact.some(h => h.hooks?.some(hh => hh.command?.includes('company-precompact')))) {
@@ -77,7 +81,7 @@ try {
   const tmpPath = settingsPath + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
   fs.renameSync(tmpPath, settingsPath);
-  console.log('Hooks installed: Stop guard + PreCompact + SessionStart restore');
+  console.log('Hooks installed: Stop guard + Context guard + PreCompact + SessionStart restore');
 } catch (e) {
   console.log('Could not register hooks. Add manually to settings.json.');
 }

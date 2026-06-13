@@ -138,6 +138,13 @@ else
   note_fail "stop-guard decision matrix failed"
 fi
 
+# 11b. Context-guard battle-test: model-aware window detection, de-loop, degrade.
+if node tests/context-guard.test.js; then
+  echo "ok: context-guard decision matrix"
+else
+  note_fail "context-guard decision matrix failed"
+fi
+
 # 12. Contract checker matrix: field and DEPENDS-ON validation must hold.
 if node tests/check-contracts.test.js; then
   echo "ok: contract checker matrix"
