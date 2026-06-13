@@ -37,6 +37,11 @@ check('8g: "yes done" (vacuous 8-char filler) fails', GOOD.replace('VERIFY-WITH:
 check('8g: "test -f x && echo PASS" (real command) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: test -f x && echo PASS'), 0);
 check('8g: "gh pr view 1" (gh command) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: gh pr view 1'), 0);
 check('8g: "https://x/y" (URL) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: https://x/y'), 0);
+// Short valid commands that are under 8 chars must pass (length threshold removed).
+check('short: "git log" (7 chars) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: git log'), 0);
+check('short: "ls ." (4 chars) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: ls .'), 0);
+check('short: "cat x" (5 chars) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: cat x'), 0);
+check('empty VERIFY-WITH still fails', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH:'), 1);
 // ROI field: missing ROI fails, empty ROI fails, valid ROI passes.
 check('missing ROI fails', GOOD.replace('ROI: high - unblocks triage ordering\n', ''), 1);
 check('empty ROI fails', GOOD.replace('ROI: high - unblocks triage ordering', 'ROI:'), 1);
