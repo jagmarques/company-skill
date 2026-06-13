@@ -8,8 +8,8 @@
  * counts, agent type and description labels and timestamps only, never
  * prompt bodies).
  *
- * Run: node scripts/dashboard.js [--port N] [--company-dir PATH]
- * Binds 127.0.0.1 only, hardcoded. Default port 7777.
+ * Run: node scripts/dashboard.js [--port N] [--company-dir PATH] [--session-id ID]
+ * Binds 127.0.0.1 only, hardcoded. Default port derived from session id.
  * Local only. Reads files on this machine, sends nothing anywhere.
  */
 'use strict';
@@ -26,8 +26,43 @@ function argValue(flag) {
   const i = argv.indexOf(flag);
   return i >= 0 && argv[i + 1] ? argv[i + 1] : null;
 }
-const PORT = Number(argValue('--port') || process.env.PORT || 7777);
+
+// MUST-FIX 1: CLAUDE_CODE_SESSION_ID is the primary session id source
+const SESSION_ID = argValue('--session-id') ||
+  process.env.CLAUDE_CODE_SESSION_ID ||
+  process.env.CLAUDE_SESSION_ID ||
+  process.env.COMPANY_SESSION_ID ||
+  null;
+
+// ---------- deterministic port derivation ----------
+function fnv1a(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// Port 7000-7999, skip 7777 (old default), 8765 and 8901 are well-known in this project
+const BLOCKED_PORTS = new Set([7777, 8765, 8901]);
+function portFor(id) {
+  if (!id) return 7777; // unbound: use 7777, show banner
+  let p = 7000 + (fnv1a(id) % 1000);
+  if (BLOCKED_PORTS.has(p)) p = 7700;
+  return p;
+}
+
 const HOST = '127.0.0.1'; // hardcoded loopback, never 0.0.0.0
+
+function resolvePort() {
+  const envPort = process.env.COMPANY_DASHBOARD_PORT;
+  if (envPort) return Number(envPort);
+  const flagPort = argValue('--port');
+  if (flagPort) return Number(flagPort);
+  return portFor(SESSION_ID);
+}
+const PORT = resolvePort();
 
 function resolveCompanyDir() {
   const flag = argValue('--company-dir');
@@ -41,7 +76,7 @@ const COMPANY_DIR = resolveCompanyDir();
 
 // ---------- tiny caches ----------
 const FILE_TTL = 2000; // 2s for file reads
-const CC_TTL = 60000; // 60s for ccusage exec results
+const CC_TTL = 60000;  // 60s for ccusage exec results
 const fileCache = new Map();
 
 function cachedReadFile(p, maxBytes) {
@@ -145,7 +180,7 @@ function priceFor(model) {
   }
   if (m.includes('sonnet')) return { i: 3, o: 15, w: 3.75, r: 0.3, est: false };
   if (m.includes('haiku')) return { i: 1, o: 5, w: 1.25, r: 0.1, est: false };
-  return { i: 10, o: 50, w: 12.5, r: 1, est: true }; // unknown: price at best known rates, mark est.
+  return { i: 10, o: 50, w: 12.5, r: 1, est: true }; // unknown: best known rates
 }
 
 function summarizeBreakdowns(breakdowns) {
@@ -175,15 +210,10 @@ function computeSavings(win) {
     };
   }
   let estimated = false;
-  // Use a fixed top-tier baseline so the saving means "vs all TOP_TIER_BASELINE".
   const topPrice = priceFor(TOP_TIER_BASELINE);
-  // Hypothetical cost if every token billed at the top-tier rate.
   const hypothetical =
     (win.input * topPrice.i + win.output * topPrice.o +
       win.cacheCreation * topPrice.w + win.cacheRead * topPrice.r) / 1e6;
-  // Recompute actual cost from priceFor() so both sides use the same price table.
-  // Using win.cost (from ccusage) here would introduce phantom savings when
-  // ccusage's internal table differs from priceFor() (e.g. during FORCE_BEST).
   let actualCost = 0;
   let cacheSaved = 0;
   for (const m of win.models) {
@@ -191,7 +221,6 @@ function computeSavings(win) {
     if (p.est) estimated = true;
     actualCost +=
       (m.input * p.i + m.output * p.o + m.cacheCreation * p.w + m.cacheRead * p.r) / 1e6;
-    // Cache savings = tokens read at cache price vs what they would cost at full input price.
     cacheSaved += (m.cacheRead * (p.i - p.r)) / 1e6;
   }
   const tieringSaved = Math.max(0, hypothetical - actualCost);
@@ -203,6 +232,27 @@ function computeSavings(win) {
 
 // ---------- transcripts ----------
 const PROJECTS_ROOT = path.join(os.homedir(), '.claude', 'projects');
+
+// MUST-FIX 2: resolve bound session transcript by globbing ~/.claude/projects/*/<sessionId>.jsonl
+// The session id is globally unique across project dirs
+function resolveTranscriptPath(sessionId) {
+  if (!sessionId) return null;
+  try {
+    const dirs = fs.readdirSync(PROJECTS_ROOT, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => path.join(PROJECTS_ROOT, e.name));
+    for (const d of dirs) {
+      const candidate = path.join(d, sessionId + '.jsonl');
+      if (fs.existsSync(candidate)) {
+        return { file: candidate, dir: d, id: sessionId };
+      }
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
 function cwdSlug() {
   return process.cwd().replace(/[/.]/g, '-');
 }
@@ -355,18 +405,6 @@ function firstNonComment(text) {
   return null;
 }
 
-function rosterRoles() {
-  const text = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md'));
-  if (!text) return [];
-  const roles = [];
-  for (const line of text.split('\n')) {
-    const m = line.match(/^\s*[-*]\s+(.+)/) || line.match(/^#{2,3}\s+(.+)/);
-    if (m) roles.push(m[1].replace(/[*_`]/g, '').slice(0, 80));
-    if (roles.length >= 24) break;
-  }
-  return roles;
-}
-
 function walkBriefings(dir, depth, acc) {
   if (depth > 3) return;
   let entries = [];
@@ -445,9 +483,310 @@ function buildCompanyState() {
   };
 }
 
+// ---------- MUST-FIX 4: context fill using exact guard formula ----------
+// Mirror is1MModel from company-context-guard.js EXACTLY (null/unknown -> 1M fail-open)
+const KNOWN_1M_SUBSTRINGS = [
+  '[1m]',
+  'claude-opus-4',
+  'claude-opus-4-5',
+  'claude-opus-4-8',
+];
+const DEFAULT_WINDOW = 1000000;
+const WINDOW_200K = 200000;
+
+function is1MModel(modelId) {
+  // Unknown/null defaults to 1M (fail-open), matching the guard exactly
+  if (!modelId) return true;
+  const lower = modelId.toLowerCase();
+  for (let i = 0; i < KNOWN_1M_SUBSTRINGS.length; i++) {
+    if (lower.indexOf(KNOWN_1M_SUBSTRINGS[i]) !== -1) return true;
+  }
+  return false;
+}
+
+function detectWindow(modelId) {
+  const envVal = process.env.COMPANY_CONTEXT_WINDOW;
+  if (envVal) {
+    const n = parseInt(envVal, 10);
+    if (n > 0) return n;
+  }
+  return is1MModel(modelId) ? DEFAULT_WINDOW : WINDOW_200K;
+}
+
+function parseContextThreshold() {
+  const raw = process.env.COMPANY_CONTEXT_THRESHOLD;
+  if (!raw) return 0.50;
+  const v = parseFloat(raw);
+  if (isNaN(v)) return 0.50;
+  // Accept either fraction (0.5) or percent (50)
+  return v > 1 ? v / 100 : v;
+}
+
+function computeContextFill(transcriptFile, overrideModel) {
+  const threshold = parseContextThreshold();
+  if (!transcriptFile) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
+  let lastUsage = null;
+  let lastModelId = overrideModel || null;
+  try {
+    const raw = cachedReadFile(transcriptFile, ORCH_TAIL);
+    if (!raw) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
+    const lines = raw.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch (_) { continue; }
+      const inner = msg.message || msg;
+      if (inner && inner.role === 'assistant' && inner.usage) {
+        lastUsage = inner.usage;
+        if (!lastModelId) {
+          if (typeof inner.model === 'string') lastModelId = inner.model;
+          else if (typeof msg.model === 'string') lastModelId = msg.model;
+        }
+        break;
+      }
+    }
+  } catch (_) {
+    return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
+  }
+  if (!lastUsage) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: lastModelId };
+  const used = (lastUsage.input_tokens || 0) +
+    (lastUsage.cache_read_input_tokens || 0) +
+    (lastUsage.cache_creation_input_tokens || 0);
+  const contextWindow = detectWindow(lastModelId);
+  const fill = used / contextWindow;
+  return { used, window: contextWindow, fill, threshold, modelId: lastModelId };
+}
+
+// ---------- MUST-FIX 3: org tree driven from live agents primarily ----------
+function getActiveCycleNumber() {
+  // Read active cycle from roster header or latest cycle-N-briefing.md
+  const rosterText = cachedReadFile(path.join(COMPANY_DIR, 'active-roster.md')) || '';
+  const m = rosterText.match(/cycle\s+(\d+)/i);
+  if (m) return parseInt(m[1], 10);
+  // Fallback: find highest numbered briefing
+  try {
+    const files = fs.readdirSync(path.join(COMPANY_DIR, 'cycles'));
+    let max = 0;
+    for (const f of files) {
+      const bm = f.match(/^cycle-(\d+)-briefing\.md$/);
+      if (bm) { const n = parseInt(bm[1], 10); if (n > max) max = n; }
+    }
+    if (max > 0) return max;
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
+function parseCycleTaskFile(filepath) {
+  const text = cachedReadFile(filepath);
+  if (!text) return [];
+  const tasks = [];
+  // Match TASK N: ... EMPLOYEE: ... blocks separated by ---
+  const taskRe = /^TASK\s+\d+:\s*(.+?)\n(?:[\s\S]*?)^EMPLOYEE:\s*(.+?)(?:\n(?:[\s\S]*?)^SURFACES:\s*(.+?))?(?:\n|$)/gm;
+  let tm;
+  while ((tm = taskRe.exec(text)) !== null) {
+    tasks.push({
+      task: tm[1].trim().slice(0, 120),
+      employee: tm[2].trim().slice(0, 60),
+      surfaces: tm[3] ? tm[3].trim().slice(0, 80) : null
+    });
+  }
+  return tasks;
+}
+
+function buildOrgTree(projDir, sessionId, liveAgents) {
+  // Tier 0: orchestrator
+  const orchNode = {
+    id: 'orchestrator',
+    tier: 0,
+    label: 'CEO',
+    status: 'active',
+    dept: null
+  };
+
+  const activeCycle = getActiveCycleNumber();
+  const cyclesDir = path.join(COMPANY_DIR, 'cycles');
+
+  // Load enrichment from matching cycle task files (active cycle only)
+  const enrichment = new Map(); // dept -> [{task, employee, surfaces}]
+  try {
+    const files = fs.readdirSync(cyclesDir);
+    for (const f of files) {
+      if (activeCycle !== null) {
+        const bm = f.match(/^cycle-(\d+)-tasks-(.+)\.md$/);
+        if (bm && parseInt(bm[1], 10) === activeCycle) {
+          const dept = bm[2];
+          const tasks = parseCycleTaskFile(path.join(cyclesDir, f));
+          if (tasks.length > 0) enrichment.set(dept, tasks);
+        }
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  // Build dept map from live agents first (MUST-FIX 3: live data drives the tree)
+  const deptMap = new Map(); // dept -> { tasks[], liveAgents[] }
+  for (const agent of liveAgents) {
+    const dept = agent.agentType || 'agent';
+    if (!deptMap.has(dept)) deptMap.set(dept, { tasks: [], liveAgents: [] });
+    deptMap.get(dept).liveAgents.push(agent);
+  }
+
+  // Add departments from task enrichment that have no live agents
+  for (const [dept, tasks] of enrichment) {
+    if (!deptMap.has(dept)) deptMap.set(dept, { tasks: [], liveAgents: [] });
+    deptMap.get(dept).tasks = tasks;
+  }
+
+  const nodes = [orchNode];
+  const edges = [];
+
+  for (const [dept, { tasks, liveAgents: deptAgents }] of deptMap) {
+    const leadId = 'lead-' + dept;
+    nodes.push({
+      id: leadId,
+      tier: 1,
+      label: dept,
+      dept,
+      status: deptAgents.length > 0 ? 'active' : 'idle',
+      liveCount: deptAgents.length
+    });
+    edges.push({ from: 'orchestrator', to: leadId });
+
+    // Tier-2: live agents in this dept
+    for (const agent of deptAgents) {
+      const nodeId = 'agent-' + agent.id;
+      // Try to enrich from task file by matching employee name
+      let enrichedTask = null;
+      for (const t of tasks) {
+        const emp = t.employee.toLowerCase();
+        const agentType = (agent.agentType || '').toLowerCase();
+        const desc = (agent.description || '').toLowerCase();
+        if (emp && (agentType.includes(emp) || desc.includes(emp) || emp.includes(agentType))) {
+          enrichedTask = t;
+          break;
+        }
+      }
+      nodes.push({
+        id: nodeId,
+        tier: 2,
+        dept,
+        label: agent.agentType,
+        employee: agent.agentType,
+        task: enrichedTask ? enrichedTask.task : agent.description.slice(0, 80),
+        surfaces: enrichedTask ? enrichedTask.surfaces : null,
+        status: agent.active ? (agent.status === 'running' ? 'running' : 'finishing') : 'done',
+        currentAction: agent.description,
+        model: agent.model || null,
+        tokens: agent.tokens || 0,
+        toolCalls: agent.toolCalls || 0,
+        runtimeMs: agent.runtimeMs || null
+      });
+      edges.push({ from: leadId, to: nodeId });
+    }
+
+    // Tier-2 from task files with no live counterpart (show as idle)
+    for (const t of tasks) {
+      const hasLive = deptAgents.some((a) => {
+        const emp = t.employee.toLowerCase();
+        const agentType = (a.agentType || '').toLowerCase();
+        return agentType.includes(emp) || emp.includes(agentType);
+      });
+      if (!hasLive) {
+        const nodeId = 'task-' + dept + '-' + t.employee.replace(/\s+/g, '-').slice(0, 20);
+        nodes.push({
+          id: nodeId,
+          tier: 2,
+          dept,
+          label: t.employee,
+          employee: t.employee,
+          task: t.task,
+          surfaces: t.surfaces,
+          status: 'idle',
+          currentAction: null,
+          model: null,
+          tokens: 0,
+          toolCalls: 0,
+          runtimeMs: null
+        });
+        edges.push({ from: leadId, to: nodeId });
+      }
+    }
+  }
+
+  const note = 'Leads are logical planners. Only the orchestrator spawns agents; tier-2 nodes are the workers the orchestrator ran.';
+  return { nodes, edges, note, activeCycle };
+}
+
+// ---------- registry ----------
+const REGISTRY_FILE = path.join(COMPANY_DIR, 'dashboard-registry.json');
+// Max age before a registry entry is considered stale (5 minutes)
+const REGISTRY_STALE_MS = 5 * 60 * 1000;
+
+function readRegistry() {
+  try {
+    const raw = fs.readFileSync(REGISTRY_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.sessions) {
+      // Filter stale entries (lastSeen older than REGISTRY_STALE_MS)
+      const now = Date.now();
+      for (const [sid, entry] of Object.entries(parsed.sessions)) {
+        const ts = entry.lastSeen || entry.startedAt;
+        if (ts && (now - new Date(ts).getTime()) > REGISTRY_STALE_MS) {
+          delete parsed.sessions[sid];
+        }
+      }
+      return parsed;
+    }
+  } catch (_) { /* ignore */ }
+  return { sessions: {} };
+}
+
+function writeRegistryEntry(sessionId, entry) {
+  // Atomic read-modify-write: read fresh, update own key, write temp, rename
+  const reg = readRegistry();
+  reg.sessions[sessionId] = entry;
+  const tmp = REGISTRY_FILE + '.tmp.' + process.pid;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(reg, null, 2));
+    fs.renameSync(tmp, REGISTRY_FILE);
+  } catch (_) {
+    try { fs.unlinkSync(tmp); } catch (_2) { /* ignore */ }
+  }
+}
+
+let ownEntry = null;
+if (SESSION_ID) {
+  ownEntry = {
+    port: PORT,
+    pid: process.pid,
+    url: 'http://' + HOST + ':' + PORT,
+    startedAt: new Date().toISOString(),
+    lastSeen: new Date().toISOString(),
+    sessionId: SESSION_ID
+  };
+}
+
+function refreshRegistryLastSeen() {
+  if (!SESSION_ID || !ownEntry) return;
+  ownEntry.lastSeen = new Date().toISOString();
+  writeRegistryEntry(SESSION_ID, ownEntry);
+}
+
+// Remove own entry on clean exit or signal
+function pruneOwnRegistryEntry() {
+  if (!SESSION_ID) return;
+  try {
+    const reg = readRegistry();
+    delete reg.sessions[SESSION_ID];
+    fs.writeFileSync(REGISTRY_FILE, JSON.stringify(reg, null, 2));
+  } catch (_) { /* ignore */ }
+}
+process.on('exit', pruneOwnRegistryEntry);
+process.on('SIGTERM', () => { pruneOwnRegistryEntry(); process.exit(0); });
+process.on('SIGINT',  () => { pruneOwnRegistryEntry(); process.exit(0); });
+
 // ---------- /api/state ----------
 function buildState() {
-  // tokens
   const daily = getCcusage('daily');
   const session = getCcusage('session');
   const blocks = getCcusage('blocks');
@@ -459,25 +798,62 @@ function buildState() {
     if (row) today = summarizeBreakdowns(row.modelBreakdowns);
   }
 
-  // transcripts
-  const projDir = projectDir();
-  let orch = { sessionModel: null, events: [] };
-  let agents = [];
-  let sessionInfo = null;
-  if (projDir) {
-    const sess = newestSessionFile(projDir);
-    if (sess) {
-      orch = parseOrchestrator(sess.file);
-      agents = collectAgents(projDir, sess.id);
-      sessionInfo = { id: sess.id.slice(0, 8) };
-      if (session && Array.isArray(session.session)) {
-        const row =
-          session.session.find((s) => String(s.period || '').includes(sess.id) || String(s.agent || '').includes(sess.id)) ||
-          null;
-        if (row) sessionInfo.usage = summarizeBreakdowns(row.modelBreakdowns);
+  // MUST-FIX 1+2: resolve bound session transcript by global glob
+  let orchFile = null;
+  let orchDir = null;
+  let resolvedSessionId = SESSION_ID;
+  let warning = null;
+
+  if (SESSION_ID) {
+    const resolved = resolveTranscriptPath(SESSION_ID);
+    if (resolved) {
+      orchFile = resolved.file;
+      orchDir = resolved.dir;
+    } else {
+      // Bound session transcript not found; fall back to newest
+      warning = 'bound session transcript not found, showing newest';
+      const projDir = projectDir();
+      if (projDir) {
+        const newest = newestSessionFile(projDir);
+        if (newest) {
+          orchFile = newest.file;
+          orchDir = path.dirname(newest.file);
+          resolvedSessionId = newest.id;
+        }
+      }
+    }
+  } else {
+    // No session id: show visible unbound banner
+    warning = 'unbound - showing shared state';
+    const projDir = projectDir();
+    if (projDir) {
+      const newest = newestSessionFile(projDir);
+      if (newest) {
+        orchFile = newest.file;
+        orchDir = path.dirname(newest.file);
+        resolvedSessionId = newest.id;
       }
     }
   }
+
+  let orch = { sessionModel: null, events: [] };
+  let agents = [];
+  let sessionInfo = null;
+  if (orchFile && orchDir && resolvedSessionId) {
+    orch = parseOrchestrator(orchFile);
+    agents = collectAgents(orchDir, resolvedSessionId);
+    const shortId = (SESSION_ID || resolvedSessionId).slice(0, 8);
+    sessionInfo = { id: shortId, full: SESSION_ID || resolvedSessionId, bound: !!SESSION_ID };
+    if (session && Array.isArray(session.session)) {
+      const row =
+        session.session.find((s) => String(s.period || '').includes(resolvedSessionId) || String(s.agent || '').includes(resolvedSessionId)) ||
+        null;
+      if (row) sessionInfo.usage = summarizeBreakdowns(row.modelBreakdowns);
+    }
+  }
+
+  // MUST-FIX 4: exact guard formula for context fill
+  const contextFill = computeContextFill(orchFile, orch.sessionModel);
 
   let block = null;
   if (blocks && Array.isArray(blocks.blocks)) {
@@ -497,17 +873,27 @@ function buildState() {
   }
 
   const activeAgents = agents.filter((a) => a.active);
+
+  // MUST-FIX 3: org tree driven from live agents
+  const org = buildOrgTree(orchDir || projectDir(), resolvedSessionId || '', agents);
+
+  refreshRegistryLastSeen();
+
   return {
+    sessionId: SESSION_ID,
+    resolvedSessionId,
+    warning,
     tokens: { available: !!(daily || session || blocks), today, session: sessionInfo, block },
     savings: computeSavings(today),
+    context: contextFill,
     agents: activeAgents.map((a) => ({
       agentType: a.agentType, model: a.model || null, description: a.description,
       status: a.status, runtimeMs: a.runtimeMs || null, tokens: a.tokens || 0, toolCalls: a.toolCalls || 0
     })),
+    org,
     hierarchy: {
       orchestrator: { model: orch.sessionModel, id: sessionInfo ? sessionInfo.id : null },
-      children: agents.slice(0, 60).map((a) => ({ id: a.id, agentType: a.agentType, description: a.description, active: a.active })),
-      roster: rosterRoles()
+      children: agents.slice(0, 60).map((a) => ({ id: a.id, agentType: a.agentType, description: a.description, active: a.active }))
     },
     feed: orch.events,
     sessionModel: orch.sessionModel,
@@ -539,6 +925,7 @@ const PAGE = `<!doctype html>
   --dim: #59636e;
   --accent: #1f883d;
   --red: #cf222e;
+  --amber: #9a6700;
   --purple: #8250df;
   --cyan: #0969da;
   --hover: #eeecea;
@@ -555,13 +942,13 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 .wrap { max-width: 72rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
 h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 h2 { font-size: 13px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; }
-.mono, td.num, .stat b { font-family: var(--font-mono); }
+.mono { font-family: var(--font-mono); }
 .muted { color: var(--dim); }
 .topline { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1.5rem; }
 .stats { display: flex; flex-wrap: wrap; gap: 2.5rem; margin-bottom: 1rem; }
 .stat { min-width: 9rem; }
 .stat .label { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
-.stat b { font-size: 22px; font-weight: 600; display: block; margin-top: 0.15rem; }
+.stat b { font-family: var(--font-mono); font-size: 22px; font-weight: 600; display: block; margin-top: 0.15rem; }
 .stat .sub { font-size: 12px; color: var(--dim); }
 .splitbar { display: flex; height: 8px; border-radius: var(--radius-pill); overflow: hidden; background: var(--hover); margin: 0.5rem 0 0.35rem; }
 .splitbar span { display: block; height: 100%; }
@@ -571,21 +958,18 @@ h2 { font-size: 13px; font-weight: 600; color: var(--dim); text-transform: upper
 .band { background: var(--band); border: 1px solid var(--band-border); color: #d6d9dd; border-radius: var(--radius-menu); padding: 0.6rem 1rem; display: flex; flex-wrap: wrap; gap: 1.75rem; font-size: 13px; margin: 1.5rem 0; }
 .band b { color: #fff; font-weight: 600; }
 .band .halt { color: var(--red); font-weight: 700; }
+.band .warn { color: #e3b341; font-weight: 600; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 1.5rem; margin-bottom: 1.5rem; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); font-weight: 600; padding: 0 0.75rem 0.5rem 0; border-bottom: 1px solid var(--line); }
 td { padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
-td.num { text-align: right; white-space: nowrap; }
-th.num { text-align: right; }
+.card table.center th, .card table.center td { text-align: center; }
 .pill { display: inline-block; border-radius: var(--radius-pill); padding: 0.1rem 0.6rem; font-size: 12px; font-weight: 600; }
 .pill.run { background: rgba(31,136,61,0.1); color: var(--accent); }
 .pill.fin { background: var(--hover); color: var(--dim); }
+.pill.warn { background: rgba(154,103,0,0.12); color: var(--amber); }
 .empty { color: var(--dim); font-size: 13.5px; padding: 0.5rem 0; }
-.hier { display: flex; gap: 1.5rem; align-items: flex-start; }
-.hier svg { flex: 1; min-width: 0; }
-.roster { width: 15rem; flex-shrink: 0; font-size: 12.5px; color: var(--dim); border-left: 1px solid var(--line); padding-left: 1.25rem; }
-.roster li { list-style: none; padding: 0.15rem 0; }
 .feed { font-size: 13px; max-height: 22rem; overflow-y: auto; }
 .feed .row { display: flex; gap: 0.75rem; padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
 .feed .row:last-child { border-bottom: none; }
@@ -593,16 +977,46 @@ th.num { text-align: right; }
 .feed .kind { font-weight: 600; width: 3.5rem; flex-shrink: 0; }
 .feed .kind.spawn { color: var(--cyan); }
 .feed .kind.finish { color: var(--accent); }
-.progress { height: 8px; background: var(--hover); border-radius: var(--radius-pill); overflow: hidden; margin: 0.5rem 0 1rem; }
+.ctx-gauge-wrap { position: relative; height: 8px; border-radius: var(--radius-pill); overflow: visible; background: var(--hover); margin: 0.5rem 0 1.5rem; }
+.ctx-gauge-bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: var(--radius-pill); transition: width 0.3s; }
+.ctx-gauge-bar.green { background: var(--accent); }
+.ctx-gauge-bar.amber { background: #d4a017; }
+.ctx-gauge-bar.red { background: var(--red); }
+.ctx-tick { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--red); border-radius: 1px; }
+.ctx-tick-label { position: absolute; top: 14px; font-size: 11px; color: var(--red); white-space: nowrap; transform: translateX(-50%); font-family: var(--font-mono); }
+.ctx-row { display: flex; align-items: baseline; gap: 1rem; margin-top: 0.25rem; }
+.ctx-pct { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
+.ctx-pct.green { color: var(--accent); }
+.ctx-pct.amber { color: var(--amber); }
+.ctx-pct.red { color: var(--red); }
+.progress { height: 8px; background: var(--hover); border-radius: var(--radius-pill); overflow: hidden; margin: 0.5rem 0 0.5rem; }
 .progress span { display: block; height: 100%; background: var(--accent); }
 .crit { display: flex; gap: 0.6rem; padding: 0.25rem 0; font-size: 13.5px; align-items: baseline; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex-shrink: 0; position: relative; top: 1px; }
 .dot.pass { background: var(--accent); }
+.crit-toggle { background: none; border: none; cursor: pointer; color: var(--cyan); font-size: 13px; padding: 0.2rem 0.5rem 0.2rem 0; margin-top: 0.25rem; display: flex; align-items: center; gap: 0.3rem; }
+.crit-toggle:hover { text-decoration: underline; }
 .kv { display: flex; flex-wrap: wrap; gap: 2rem; font-size: 13.5px; }
 .kv div span { display: block; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
 .kv div b { font-family: var(--font-mono); font-weight: 600; }
 footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 1rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
-@media (max-width: 760px) { .roster { display: none; } .stats { gap: 1.5rem; } }
+.tree-card { position: relative; }
+.tree-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.tree-controls { display: flex; gap: 0.5rem; }
+.tree-btn { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; padding: 0.2rem 0.5rem; font-size: 12px; color: var(--dim); }
+.tree-btn:hover { background: var(--hover); }
+.tree-container { overflow: hidden; border-radius: 12px; background: #fafaf9; border: 1px solid var(--line); position: relative; }
+.tree-svg-wrap { overflow: hidden; cursor: grab; user-select: none; }
+.tree-svg-wrap:active { cursor: grabbing; }
+#tree { display: block; width: 100%; }
+.tree-note { font-size: 12px; color: var(--dim); margin-top: 0.5rem; font-style: italic; }
+.node-detail { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-top: 0.75rem; font-size: 13px; }
+.node-detail h3 { font-size: 13px; font-weight: 600; margin-bottom: 0.5rem; }
+.nd-row { display: flex; gap: 0.5rem; padding: 0.15rem 0; }
+.nd-label { font-size: 12px; color: var(--dim); width: 5.5rem; flex-shrink: 0; }
+.nd-val { font-family: var(--font-mono); font-size: 12px; }
+@keyframes activePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+@media (max-width: 760px) { .stats { gap: 1.5rem; } }
 </style>
 </head>
 <body>
@@ -612,12 +1026,19 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
     <span class="muted mono" id="updated">connecting</span>
   </div>
 
+  <div id="unbound-banner" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:0.5rem 1rem;margin-bottom:1rem;font-size:13px;color:#856404;font-weight:600;"></div>
+
   <section id="header-strip">
     <div class="stats" id="stats"></div>
     <div class="splitbar" id="splitbar"></div>
     <div class="legend" id="legend"></div>
     <div class="caveat" id="caveat"></div>
   </section>
+
+  <div class="card">
+    <h2>Context fill</h2>
+    <div id="ctx-fill"></div>
+  </div>
 
   <div class="band" id="policy-band"></div>
 
@@ -626,12 +1047,23 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
     <div id="agents"></div>
   </div>
 
-  <div class="card">
-    <h2>Company hierarchy</h2>
-    <div class="hier">
-      <svg id="tree" preserveAspectRatio="xMidYMin meet"></svg>
-      <div class="roster"><h2>Declared roster</h2><ul id="roster"></ul></div>
+  <div class="card tree-card" id="tree-card">
+    <div class="tree-header">
+      <h2 style="margin-bottom:0">Company delegation tree</h2>
+      <div class="tree-controls">
+        <button class="tree-btn" id="zoom-in">+</button>
+        <button class="tree-btn" id="zoom-out">-</button>
+        <button class="tree-btn" id="zoom-reset">reset</button>
+        <button class="tree-btn" id="tree-fullscreen">fullscreen</button>
+      </div>
     </div>
+    <div class="tree-container" id="tree-container">
+      <div class="tree-svg-wrap" id="tree-svg-wrap">
+        <svg id="tree" preserveAspectRatio="xMidYMin meet"></svg>
+      </div>
+    </div>
+    <div id="node-detail"></div>
+    <div class="tree-note" id="tree-note"></div>
   </div>
 
   <div class="card">
@@ -743,81 +1175,430 @@ function renderBand(s) {
   add('session model', shortModel(p.sessionModel));
   add('owners', String(p.ownerCount ?? '?'));
   if (p.halt) band.appendChild(el('span', 'halt', 'HALT REQUESTED'));
+  if (s.warning) {
+    const w = el('span');
+    w.appendChild(el('b', 'warn', s.warning));
+    band.appendChild(w);
+  }
 }
 
+// Contract 4: center all columns via table.center class
 function renderAgents(s) {
   const root = $('agents');
   root.replaceChildren();
   const agents = s.agents || [];
   if (!agents.length) { root.appendChild(el('div', 'empty', 'No agents running')); return; }
-  const table = el('table');
+  const table = el('table', 'center');
   const thead = el('thead'); const hr = el('tr');
-  ['agent', 'model', 'task', 'status', 'runtime', 'tokens', 'tool calls'].forEach((h, i) => {
-    const th = el('th', i >= 4 ? 'num' : null, h); hr.appendChild(th);
+  ['agent', 'model', 'task', 'status', 'runtime', 'tokens', 'tool calls'].forEach((h) => {
+    hr.appendChild(el('th', null, h));
   });
   thead.appendChild(hr); table.appendChild(thead);
   const tbody = el('tbody');
   for (const a of agents) {
     const tr = el('tr');
     tr.appendChild(el('td', null, a.agentType));
-    tr.appendChild(el('td', 'num', shortModel(a.model)));
+    tr.appendChild(el('td', 'mono', shortModel(a.model)));
     tr.appendChild(el('td', null, a.description));
     const td = el('td'); td.appendChild(el('span', 'pill run', a.status)); tr.appendChild(td);
-    tr.appendChild(el('td', 'num', fmtDur(a.runtimeMs)));
-    tr.appendChild(el('td', 'num', fmtTok(a.tokens)));
-    tr.appendChild(el('td', 'num', String(a.toolCalls)));
+    tr.appendChild(el('td', 'mono', fmtDur(a.runtimeMs)));
+    tr.appendChild(el('td', 'mono', fmtTok(a.tokens)));
+    tr.appendChild(el('td', 'mono', String(a.toolCalls)));
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
   root.appendChild(table);
 }
 
-function renderTree(s) {
-  const svg = $('tree');
-  svg.replaceChildren();
-  const h = s.hierarchy || {};
-  const kids = h.children || [];
-  const lanes = new Map();
-  for (const k of kids) {
-    if (!lanes.has(k.agentType)) lanes.set(k.agentType, []);
-    lanes.get(k.agentType).push(k);
+// Contract 2: context fill gauge with 50% restart tick
+function renderContextFill(s) {
+  const root = $('ctx-fill');
+  root.replaceChildren();
+  const ctx = s.context;
+  if (!ctx || ctx.used === 0) {
+    root.appendChild(el('div', 'muted', 'No transcript usage found'));
+    return;
   }
-  const laneNames = [...lanes.keys()];
+  const pct = (ctx.fill * 100).toFixed(1);
+  const threshPct = (ctx.threshold * 100).toFixed(0);
+  let colorClass = 'green';
+  if (ctx.fill >= ctx.threshold) colorClass = 'red';
+  else if (ctx.fill >= 0.4) colorClass = 'amber';
+
+  const wrap = el('div', 'ctx-gauge-wrap');
+  const barFill = el('div', 'ctx-gauge-bar ' + colorClass);
+  barFill.style.width = Math.min(100, ctx.fill * 100).toFixed(2) + '%';
+  wrap.appendChild(barFill);
+
+  const tick = el('div', 'ctx-tick');
+  tick.style.left = (ctx.threshold * 100).toFixed(2) + '%';
+  wrap.appendChild(tick);
+  const tickLabel = el('div', 'ctx-tick-label', 'restart ' + threshPct + '%');
+  tickLabel.style.left = (ctx.threshold * 100).toFixed(2) + '%';
+  wrap.appendChild(tickLabel);
+  root.appendChild(wrap);
+
+  const row = el('div', 'ctx-row');
+  row.appendChild(el('span', 'ctx-pct ' + colorClass, pct + '%'));
+  row.appendChild(el('span', 'muted', fmtTok(ctx.used) + ' / ' + fmtTok(ctx.window) + ' tokens'));
+  if (ctx.modelId) row.appendChild(el('span', 'muted', shortModel(ctx.modelId)));
+  if (ctx.fill >= ctx.threshold) row.appendChild(el('span', 'pill warn', 'restart due'));
+  root.appendChild(row);
+}
+
+// MUST-FIX 1: visible unbound banner
+function renderUnboundBanner(s) {
+  const banner = $('unbound-banner');
+  if (s.warning) {
+    banner.textContent = 'Session: ' + s.warning;
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// Contract 3 + MUST-FIX 5: interactive SVG org tree with diff-update and persisted view state
+// View state stored in sessionStorage keyed by session id to avoid cross-tab clobber
+let _treeSessionId = null;
+const treeView = { vbX: 0, vbY: 0, vbW: 900, vbH: 500, selectedNode: null, isInteracting: false };
+
+function treeStorageKey() {
+  return 'companyTree:' + (_treeSessionId || 'unbound');
+}
+
+function loadTreeView() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(treeStorageKey()) || '{}');
+    if (typeof saved.vbX === 'number') treeView.vbX = saved.vbX;
+    if (typeof saved.vbY === 'number') treeView.vbY = saved.vbY;
+    if (typeof saved.vbW === 'number') treeView.vbW = saved.vbW;
+    if (typeof saved.vbH === 'number') treeView.vbH = saved.vbH;
+    if (saved.selectedNode) treeView.selectedNode = saved.selectedNode;
+  } catch (_) {}
+}
+
+function saveTreeView() {
+  try {
+    sessionStorage.setItem(treeStorageKey(), JSON.stringify({
+      vbX: treeView.vbX, vbY: treeView.vbY, vbW: treeView.vbW, vbH: treeView.vbH,
+      selectedNode: treeView.selectedNode
+    }));
+  } catch (_) {}
+}
+
+let _orgNodes = [];
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, String(attrs[k]));
+  return n;
+}
+
+function nodeColor(status) {
+  if (status === 'running') return '#1f883d';
+  if (status === 'finishing') return '#0969da';
+  if (status === 'done') return '#8250df';
+  if (status === 'active') return '#0969da';
+  return '#59636e';
+}
+
+function nodeFill(status, tier) {
+  if (tier === 0) return '#0a0a0a';
+  if (status === 'running') return 'rgba(31,136,61,0.12)';
+  if (status === 'finishing') return 'rgba(9,105,218,0.10)';
+  if (status === 'done') return 'rgba(130,80,223,0.08)';
+  if (status === 'active') return 'rgba(9,105,218,0.08)';
+  return 'rgba(89,99,110,0.06)';
+}
+
+// Compute x/y positions for each node
+function layoutTree(org) {
+  const nodes = org.nodes || [];
+  if (!nodes.length) return { placed: {}, W: 400, H: 100 };
   const W = 900;
-  const laneW = laneNames.length ? W / laneNames.length : W;
-  const rowH = 26, topY = 70;
-  const maxRows = Math.max(1, ...laneNames.map((l) => lanes.get(l).length));
-  const H = topY + 30 + maxRows * rowH + 10;
-  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-  svg.setAttribute('height', Math.min(H, 460));
-  const ns = 'http://www.w3.org/2000/svg';
-  const mk = (tag, attrs, text) => {
-    const n = document.createElementNS(ns, tag);
-    for (const k in attrs) n.setAttribute(k, attrs[k]);
-    if (text !== undefined) n.textContent = text;
-    return n;
-  };
-  // orchestrator node
-  const ox = W / 2;
-  svg.appendChild(mk('rect', { x: ox - 110, y: 8, width: 220, height: 34, rx: 10, fill: '#0a0a0a' }));
-  svg.appendChild(mk('text', { x: ox, y: 30, 'text-anchor': 'middle', fill: '#ffffff', 'font-size': 12, 'font-family': 'ui-monospace, Menlo, monospace' },
-    'orchestrator ' + shortModel(h.orchestrator && h.orchestrator.model) + (h.orchestrator && h.orchestrator.id ? ' ' + h.orchestrator.id : '')));
-  laneNames.forEach((lane, li) => {
-    const cx = laneW * li + laneW / 2;
-    svg.appendChild(mk('line', { x1: ox, y1: 42, x2: cx, y2: topY - 6, stroke: '#d1d9e0', 'stroke-width': 1 }));
-    svg.appendChild(mk('text', { x: cx, y: topY + 8, 'text-anchor': 'middle', fill: '#59636e', 'font-size': 11, 'font-weight': 600 }, lane));
-    lanes.get(lane).forEach((k, ki) => {
-      const y = topY + 22 + ki * rowH;
-      const color = k.active ? '#1f883d' : '#59636e';
-      svg.appendChild(mk('circle', { cx: cx - laneW / 2 + 14, cy: y - 4, r: 4, fill: k.active ? '#1f883d' : '#d1d9e0' }));
-      const label = (k.description || k.id || '').slice(0, Math.max(8, Math.floor(laneW / 7)));
-      svg.appendChild(mk('text', { x: cx - laneW / 2 + 24, y, fill: color, 'font-size': 11 }, label));
-    });
+  const nodeW = 140, nodeH = 36;
+  const tierY = { 0: 40, 1: 130, 2: 240 };
+  const placed = {};
+
+  const tier0 = nodes.filter(n => n.tier === 0);
+  const tier1 = nodes.filter(n => n.tier === 1);
+  const tier2 = nodes.filter(n => n.tier === 2);
+
+  if (tier0.length) placed[tier0[0].id] = { x: W / 2 - nodeW / 2, y: tierY[0] };
+
+  const t1Step = tier1.length > 0 ? Math.max(nodeW + 16, W / tier1.length) : W;
+  tier1.forEach((n, i) => {
+    placed[n.id] = { x: Math.max(0, t1Step * i + (t1Step - nodeW) / 2), y: tierY[1] };
   });
-  const roster = $('roster');
-  roster.replaceChildren();
-  (h.roster || []).forEach((r) => roster.appendChild(el('li', null, r)));
-  if (!(h.roster || []).length) roster.appendChild(el('li', null, 'no roster file'));
+
+  // Group tier-2 under their lead
+  const byLead = {};
+  for (const e of (org.edges || [])) {
+    if (!byLead[e.from]) byLead[e.from] = [];
+    byLead[e.from].push(e.to);
+  }
+  let totalH = 320;
+  for (const [leadId, childIds] of Object.entries(byLead)) {
+    const leadPos = placed[leadId];
+    if (!leadPos) continue;
+    const lead = nodes.find(n => n.id === leadId);
+    if (!lead || lead.tier !== 1) continue;
+    const t2children = childIds.filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    const cols = Math.min(3, t2children.length);
+    const slotW = Math.max(nodeW + 8, t1Step);
+    const groupW = cols * slotW;
+    const startX = leadPos.x + nodeW / 2 - groupW / 2;
+    t2children.forEach((cid, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const y = tierY[2] + row * (nodeH + 14);
+      const x = startX + col * slotW;
+      placed[cid] = { x, y };
+      if (y + nodeH + 20 > totalH) totalH = y + nodeH + 20;
+    });
+  }
+  for (const n of tier2) {
+    if (!placed[n.id]) {
+      placed[n.id] = { x: 10, y: tierY[2] };
+    }
+  }
+  return { placed, W, H: Math.max(320, totalH) };
+}
+
+function renderTree(s) {
+  const org = s.org || { nodes: [], edges: [], note: '' };
+  _orgNodes = org.nodes || [];
+
+  if (s.sessionId && !_treeSessionId) {
+    _treeSessionId = s.sessionId;
+    loadTreeView(); // load persisted view state now that we have a session id
+  }
+
+  const svg = $('tree');
+  const { placed, W, H } = layoutTree(org);
+  const nodeW = 140, nodeH = 36;
+
+  // Initialize natural dimensions once
+  if (!svg.dataset.initVb) {
+    treeView.vbW = W; treeView.vbH = H;
+    svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
+    svg.setAttribute('height', Math.min(H, 460));
+    svg.dataset.initVb = '1';
+    svg.dataset.naturalW = W;
+    svg.dataset.naturalH = H;
+  }
+
+  // Get or create root group for diff-update
+  let rootG = svg.getElementById('tree-root');
+  if (!rootG) {
+    rootG = svgEl('g', { id: 'tree-root' });
+    svg.appendChild(rootG);
+  }
+
+  // Index existing edges and node groups
+  const existingEdges = {};
+  for (const line of rootG.querySelectorAll('line[data-edge]')) {
+    existingEdges[line.dataset.edge] = line;
+  }
+  const existingNodes = {};
+  for (const g of rootG.querySelectorAll('g[data-nid]')) {
+    existingNodes[g.dataset.nid] = g;
+  }
+
+  const wantEdges = new Set();
+  const wantNodes = new Set();
+
+  // Update edges
+  for (const edge of (org.edges || [])) {
+    const fp = placed[edge.from], tp = placed[edge.to];
+    if (!fp || !tp) continue;
+    const key = edge.from + '>' + edge.to;
+    wantEdges.add(key);
+    const x1 = fp.x + nodeW / 2, y1 = fp.y + nodeH;
+    const x2 = tp.x + nodeW / 2, y2 = tp.y;
+    let line = existingEdges[key];
+    if (!line) {
+      line = svgEl('line', { 'data-edge': key, stroke: '#d1d9e0', 'stroke-width': 1 });
+      rootG.insertBefore(line, rootG.firstChild);
+    }
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  }
+  for (const k of Object.keys(existingEdges)) {
+    if (!wantEdges.has(k)) existingEdges[k].remove();
+  }
+
+  // Update nodes (diff-update in place)
+  for (const node of _orgNodes) {
+    const pos = placed[node.id];
+    if (!pos) continue;
+    wantNodes.add(node.id);
+    const color = nodeColor(node.status);
+    const fill = nodeFill(node.status, node.tier);
+    const isSelected = treeView.selectedNode === node.id;
+    const label = (node.label || node.id).slice(0, 16);
+
+    let g = existingNodes[node.id];
+    if (!g) {
+      g = svgEl('g', { 'data-nid': node.id, cursor: 'pointer' });
+      g.addEventListener('click', () => {
+        treeView.selectedNode = (treeView.selectedNode === node.id) ? null : node.id;
+        saveTreeView();
+        renderNodeDetail();
+      });
+      g.appendChild(svgEl('rect', {}));
+      g.appendChild(svgEl('text', { 'class': 'nl' }));
+      g.appendChild(svgEl('text', { 'class': 'ns' }));
+      rootG.appendChild(g);
+    }
+
+    const rect = g.querySelector('rect');
+    rect.setAttribute('x', pos.x); rect.setAttribute('y', pos.y);
+    rect.setAttribute('width', nodeW); rect.setAttribute('height', nodeH);
+    rect.setAttribute('rx', 8); rect.setAttribute('fill', fill);
+    rect.setAttribute('stroke', isSelected ? color : (node.tier === 0 ? '#0a0a0a' : color));
+    rect.setAttribute('stroke-width', isSelected ? 2 : 1);
+    rect.style.animation = node.status === 'running' ? 'activePulse 1.5s ease-in-out infinite' : '';
+
+    const textEl = g.querySelector('.nl');
+    textEl.setAttribute('x', pos.x + nodeW / 2); textEl.setAttribute('y', pos.y + 16);
+    textEl.setAttribute('text-anchor', 'middle');
+    textEl.setAttribute('fill', node.tier === 0 ? '#fff' : color);
+    textEl.setAttribute('font-size', 11); textEl.setAttribute('font-weight', 600);
+    textEl.setAttribute('font-family', 'ui-monospace,Menlo,monospace');
+    textEl.textContent = label;
+
+    const subEl = g.querySelector('.ns');
+    subEl.setAttribute('x', pos.x + nodeW / 2); subEl.setAttribute('y', pos.y + 28);
+    subEl.setAttribute('text-anchor', 'middle'); subEl.setAttribute('fill', '#888');
+    subEl.setAttribute('font-size', 9);
+    subEl.setAttribute('font-family', 'ui-monospace,Menlo,monospace');
+    const tierLabel = node.tier === 0 ? 'orchestrator' : (node.tier === 1 ? 'lead' : node.status);
+    subEl.textContent = tierLabel;
+  }
+
+  // Remove stale nodes
+  for (const nid of Object.keys(existingNodes)) {
+    if (!wantNodes.has(nid)) existingNodes[nid].remove();
+  }
+
+  // Apply view state only when not interacting (MUST-FIX 5)
+  if (!treeView.isInteracting) {
+    svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
+  }
+
+  const noteEl = $('tree-note');
+  if (noteEl) noteEl.textContent = org.note || '';
+}
+
+function renderNodeDetail() {
+  const container = $('node-detail');
+  if (!container) return;
+  container.replaceChildren();
+  if (!treeView.selectedNode) return;
+  const node = _orgNodes.find(n => n.id === treeView.selectedNode);
+  if (!node) return;
+  const panel = el('div', 'node-detail');
+  panel.appendChild(el('h3', null, node.label || node.id));
+  const rows = [
+    ['tier', node.tier === 0 ? 'orchestrator' : (node.tier === 1 ? 'lead' : 'worker')],
+    ['status', node.status || '?'],
+    ['dept', node.dept || '-'],
+    ['model', node.model || '-'],
+    ['tokens', fmtTok(node.tokens)],
+    ['tool calls', String(node.toolCalls || 0)],
+    ['runtime', node.runtimeMs ? fmtDur(node.runtimeMs) : '-'],
+  ];
+  if (node.task) rows.push(['task', node.task]);
+  if (node.surfaces) rows.push(['surfaces', node.surfaces]);
+  if (node.currentAction) rows.push(['action', node.currentAction.slice(0, 120)]);
+  for (const [label, val] of rows) {
+    const row = el('div', 'nd-row');
+    row.appendChild(el('span', 'nd-label', label));
+    row.appendChild(el('span', 'nd-val', val));
+    panel.appendChild(row);
+  }
+  container.appendChild(panel);
+}
+
+// Set up zoom/pan/fullscreen interactions once
+let _treeInteractionsSetup = false;
+function setupTreeInteractions() {
+  if (_treeInteractionsSetup) return;
+  _treeInteractionsSetup = true;
+  const svg = $('tree');
+  const wrap = $('tree-svg-wrap');
+
+  // Mouse wheel zoom (MUST-FIX 5: set isInteracting to suppress poll re-apply)
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    treeView.isInteracting = true;
+    const factor = e.deltaY > 0 ? 1.12 : 0.89;
+    const cx = treeView.vbX + treeView.vbW / 2;
+    const cy = treeView.vbY + treeView.vbH / 2;
+    treeView.vbW *= factor; treeView.vbH *= factor;
+    treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
+    saveTreeView();
+    clearTimeout(wrap._iTimer);
+    wrap._iTimer = setTimeout(() => { treeView.isInteracting = false; }, 300);
+  }, { passive: false });
+
+  // Pan by drag
+  let ds = null, dvs = null;
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('g[data-nid]')) return;
+    ds = { x: e.clientX, y: e.clientY };
+    dvs = { x: treeView.vbX, y: treeView.vbY };
+    treeView.isInteracting = true;
+    wrap.setPointerCapture(e.pointerId);
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!ds) return;
+    const r = svg.getBoundingClientRect();
+    const sx = treeView.vbW / r.width, sy = treeView.vbH / r.height;
+    treeView.vbX = dvs.x + (ds.x - e.clientX) * sx;
+    treeView.vbY = dvs.y + (ds.y - e.clientY) * sy;
+    svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
+    saveTreeView();
+  });
+  const endDrag = () => {
+    ds = null;
+    clearTimeout(wrap._iTimer);
+    wrap._iTimer = setTimeout(() => { treeView.isInteracting = false; }, 300);
+  };
+  wrap.addEventListener('pointerup', endDrag);
+  wrap.addEventListener('pointercancel', endDrag);
+
+  $('zoom-in').addEventListener('click', () => {
+    const cx = treeView.vbX + treeView.vbW / 2, cy = treeView.vbY + treeView.vbH / 2;
+    treeView.vbW *= 0.8; treeView.vbH *= 0.8;
+    treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
+    saveTreeView();
+  });
+  $('zoom-out').addEventListener('click', () => {
+    const cx = treeView.vbX + treeView.vbW / 2, cy = treeView.vbY + treeView.vbH / 2;
+    treeView.vbW *= 1.25; treeView.vbH *= 1.25;
+    treeView.vbX = cx - treeView.vbW / 2; treeView.vbY = cy - treeView.vbH / 2;
+    svg.setAttribute('viewBox', treeView.vbX + ' ' + treeView.vbY + ' ' + treeView.vbW + ' ' + treeView.vbH);
+    saveTreeView();
+  });
+  $('zoom-reset').addEventListener('click', () => {
+    const nW = parseFloat(svg.dataset.naturalW) || 900;
+    const nH = parseFloat(svg.dataset.naturalH) || 500;
+    treeView.vbX = 0; treeView.vbY = 0; treeView.vbW = nW; treeView.vbH = nH;
+    svg.setAttribute('viewBox', '0 0 ' + nW + ' ' + nH);
+    saveTreeView();
+  });
+  $('tree-fullscreen').addEventListener('click', () => {
+    const card = $('tree-card');
+    if (!document.fullscreenElement) card.requestFullscreen().catch(() => {});
+    else document.exitFullscreen().catch(() => {});
+  });
 }
 
 function renderFeed(s) {
@@ -834,23 +1615,44 @@ function renderFeed(s) {
   }
 }
 
+// Contract 5: compact criteria bar + click-to-expand, module-level expand flag
+let criteriaOpen = false;
+let _lastCriteria = null;
+
 function renderCriteria(s) {
   const root = $('criteria');
   root.replaceChildren();
   const c = s.criteria || {};
+  _lastCriteria = c;
   if (!c.total) { root.appendChild(el('div', 'empty', 'No criteria.json found')); return; }
-  root.appendChild(el('div', 'muted', (c.passed || 0) + ' of ' + c.total + ' criteria passing'));
+
+  const evCount = (c.items || []).filter(i => i.evidence).length;
+  root.appendChild(el('div', 'muted', (c.passed || 0) + '/' + c.total + ' passing - ' + evCount + ' with evidence'));
+
   const bar = el('div', 'progress');
   const fill = el('span');
   fill.style.width = ((c.passed / c.total) * 100).toFixed(2) + '%';
   bar.appendChild(fill);
   root.appendChild(bar);
-  for (const item of c.items || []) {
-    const row = el('div', 'crit');
-    row.appendChild(el('span', 'dot' + (item.passes ? ' pass' : '')));
-    row.appendChild(el('span', null, item.id + '. ' + item.description));
-    row.appendChild(el('span', 'muted mono', item.evidence ? 'evidence' : ''));
-    root.appendChild(row);
+
+  const toggle = el('button', 'crit-toggle');
+  toggle.textContent = (criteriaOpen ? 'v hide detail' : '> show detail');
+  toggle.addEventListener('click', () => {
+    criteriaOpen = !criteriaOpen;
+    renderCriteria({ criteria: _lastCriteria });
+  });
+  root.appendChild(toggle);
+
+  if (criteriaOpen) {
+    const detail = el('div');
+    for (const item of c.items || []) {
+      const row = el('div', 'crit');
+      row.appendChild(el('span', 'dot' + (item.passes ? ' pass' : '')));
+      row.appendChild(el('span', null, item.id + '. ' + item.description));
+      row.appendChild(el('span', 'muted mono', item.evidence ? 'evidence' : ''));
+      detail.appendChild(row);
+    }
+    root.appendChild(detail);
   }
 }
 
@@ -887,8 +1689,18 @@ async function tick() {
   try {
     const res = await fetch('/api/state');
     const s = await res.json();
-    renderHeader(s); renderBand(s); renderAgents(s); renderTree(s);
-    renderFeed(s); renderCriteria(s); renderCycles(s); renderBurn(s);
+    renderUnboundBanner(s);
+    renderHeader(s);
+    renderContextFill(s);
+    renderBand(s);
+    renderAgents(s);
+    renderTree(s);
+    renderNodeDetail();
+    renderFeed(s);
+    renderCriteria(s);
+    renderCycles(s);
+    renderBurn(s);
+    setupTreeInteractions();
     $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
   } catch (e) {
     $('updated').textContent = 'disconnected';
@@ -922,14 +1734,60 @@ const server = http.createServer((req, res) => {
     res.end(body);
     return;
   }
+  if (req.method === 'GET' && url === '/api/registry') {
+    const reg = readRegistry();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ sessions: reg.sessions }));
+    return;
+  }
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('not found');
 });
 
-server.listen(PORT, HOST, () => {
+// Linear-probe on EADDRINUSE: try PORT, PORT+1 .. PORT+20 then exit.
+const PORT_PROBE_MAX = 20;
+let currentPort = PORT;
+
+function startListening() {
+  server.listen(currentPort, HOST, onListening);
+}
+
+function onListening() {
+  const chosenPort = currentPort;
+  if (SESSION_ID && ownEntry) {
+    // Record actual chosen port (may differ from the initial PORT after probe)
+    ownEntry.port = chosenPort;
+    ownEntry.url = 'http://' + HOST + ':' + chosenPort;
+    writeRegistryEntry(SESSION_ID, ownEntry);
+  }
   // Warm the slow ccusage caches right away.
   refreshCcusage('daily');
   refreshCcusage('session');
   refreshCcusage('blocks');
-  console.log('dashboard listening on http://' + HOST + ':' + PORT + ' (company dir: ' + COMPANY_DIR + ')');
+  const bound = SESSION_ID ? 'session ' + SESSION_ID.slice(0, 8) : 'UNBOUND (showing shared state)';
+  const url = 'http://' + HOST + ':' + chosenPort;
+  console.log('dashboard listening on ' + url + ' (' + bound + ', company dir: ' + COMPANY_DIR + ')');
+}
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const tried = currentPort;
+    if (currentPort < PORT + PORT_PROBE_MAX) {
+      currentPort++;
+      // Remove old listeners so re-listen is clean
+      server.close(() => { startListening(); });
+    } else {
+      process.stderr.write(
+        'dashboard: port ' + PORT + ' is in use and probing ' + PORT + '+1..' +
+        PORT_PROBE_MAX + ' all failed. Free a port in that range and retry.\n'
+      );
+      process.exit(1);
+    }
+    return;
+  }
+  // Non-EADDRINUSE errors are unexpected - surface them clearly
+  process.stderr.write('dashboard: server error: ' + err.message + '\n');
+  process.exit(1);
 });
+
+startListening();
