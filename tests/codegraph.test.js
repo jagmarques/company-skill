@@ -156,18 +156,24 @@ check('origin-ahead: update exits 0', r.status === 0, r.out);
 r = run(['status', '--root', local], state14);
 check('origin-ahead: status is FRESH after update', r.status === 0 && r.out.includes('FRESH'), r.out);
 
-// 15. generic local const does not outrank an exported function referenced across files
+// 15. generic local const does not outrank an exported function referenced across files.
+// The GENERIC_LOCALS guard fires only when crossRefs === 0, so the fixture must give
+// result zero cross-file refs: it is defined only in lib.js and the consumer files use
+// a different local name (parsed) so result never appears in any other file.
 const rankRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-rank-'));
 const rankState = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-rank-state-'));
 sh(rankRepo, 'git', ['init', '-q']);
 sh(rankRepo, 'git', ['config', 'user.email', 'test@example.com']);
 sh(rankRepo, 'git', ['config', 'user.name', 'test']);
-// lib.js exports a function that four other files import
+// lib.js: parseRequest is exported and referenced by 4 consumers.
+// result is a generic local const used only inside lib.js (zero cross-file refs),
+// so the GENERIC_LOCALS guard must drop it from ranking.
 fs.writeFileSync(path.join(rankRepo, 'lib.js'),
   'function parseRequest(x) { return x; }\nconst result = null;\nmodule.exports.parseRequest = parseRequest;\n');
 for (let i = 0; i < 4; i++) {
+  // consumers reference parseRequest but NOT result, so result has zero cross-file refs
   fs.writeFileSync(path.join(rankRepo, 'consumer' + i + '.js'),
-    'const { parseRequest } = require("./lib");\nconst result = parseRequest(' + i + ');\n');
+    'const { parseRequest } = require("./lib");\nconst parsed = parseRequest(' + i + ');\n');
 }
 sh(rankRepo, 'git', ['add', '.']);
 sh(rankRepo, 'git', ['commit', '-q', '-m', 'rank fixture']);
@@ -176,10 +182,11 @@ check('ranking fixture built', r.status === 0, r.out);
 r = run(['map', '--root', rankRepo], rankState);
 const iLib = r.out.indexOf('lib.js');
 const parsePos = r.out.indexOf('parseRequest');
-// result is a generic local: it should not appear before parseRequest in lib.js's symbol list
+// result has zero cross-file refs and is in GENERIC_LOCALS, so it must be absent
+// from the map output for lib.js (the GENERIC_LOCALS guard excluded it)
 const resultPos = r.out.indexOf('const result');
 check('generic local const does not outrank exported cross-file fn',
-  parsePos !== -1 && (resultPos === -1 || parsePos < resultPos), r.out);
+  parsePos !== -1 && resultPos === -1, r.out);
 
 fs.rmSync(repo, { recursive: true, force: true });
 fs.rmSync(state, { recursive: true, force: true });
