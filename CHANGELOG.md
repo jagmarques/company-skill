@@ -2,6 +2,35 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.5
+
+### Fixed
+- High-stakes 3-lens verify gate (introduced in 4.6.3) was unreachable: it gates on
+  `stakes: "high"` in criteria.json, but the criteria-authoring section never instructed
+  the orchestrator to write that field. The gate was shipped but could never trigger.
+  Fix: criteria-authoring rules now explicitly instruct setting `stakes: "high"` on
+  irreversible, security, or data-loss criteria, with omitted/normal as the default so
+  existing behavior is unchanged. The stall counter wiring is confirmed: the reviewer
+  agent now explicitly states it must write `attempts` to criteria.json (both the stall
+  detector and the high-stakes gate read it from there).
+
+### Added
+- Two anti-recurrence principles to SKILL.md (ANTI-VACUOUS TEST and FEATURE REACHABILITY),
+  referenced in both the reviewer and critic agent files so every future cycle checks them.
+- Non-vacuous test `tests/stakes-routing.test.js`: asserts the stakes field is authored,
+  the stall counter is wired, and the reviewer and critic carry the new checks. Fails
+  against pre-fix code (9 assertions) and passes after. Wired into `scripts/check.sh`.
+
+### Changed
+- README refreshed to accurately reflect the 4.6.5 feature set: per-session dashboard with
+  org chart and auto-restart toggle, multi-level verification (high-stakes 3-lens + 
+  completeness probe + design judge-panel), ROI+stakes effort tiering, status-line link,
+  and Fable-5-aligned thinking/effort guidance.
+
+This release closes work from three PRs: companyDir resolution fix (4.6.4/PR #70),
+code-bug sweep (org-parser, lead-detection, cleanup fail-safe, verify-with regex / PR #71),
+and this PR (reachable high-stakes gate, anti-recurrence rules, README refresh).
+
 ## 4.6.4
 
 ### Fixed

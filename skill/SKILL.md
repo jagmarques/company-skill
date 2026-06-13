@@ -194,11 +194,11 @@ Otherwise:
 
 ```json
 {"goal":"...","criteria":[
-  {"id":1,"description":"specific checkable criterion","passes":false,"evidence":null}
+  {"id":1,"description":"specific checkable criterion","passes":false,"evidence":null,"stakes":"normal"}
 ]}
 ```
 
-Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time. When writing criteria.json for a NEW goal, first run `node <skill-scripts-dir>/reset-company-guard.js` to clear any stale `.company/criteria.lock`, `.company/CANCEL`, `.company/.context-guard-state`, and the external anchor dir from the previous run. The stop guard re-snapshots the new id set on first sight once the stale anchor is gone. Clearing the external anchor and the context-guard state is symmetric with clearing the criteria.lock: skipping either would leave the prior run's state active for the new goal.
+Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Set `stakes: "high"` on any criterion that is irreversible, touches a security surface, makes a public-facing claim, or could cause data loss. Omit `stakes` or set it to `"normal"` for everything else; the default is normal (single critic, existing behavior unchanged). The 3-lens verify in the VERIFY section gates on this field, so a criterion that warrants high scrutiny MUST carry it here or the feature never triggers. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time. When writing criteria.json for a NEW goal, first run `node <skill-scripts-dir>/reset-company-guard.js` to clear any stale `.company/criteria.lock`, `.company/CANCEL`, `.company/.context-guard-state`, and the external anchor dir from the previous run. The stop guard re-snapshots the new id set on first sight once the stale anchor is gone. Clearing the external anchor and the context-guard state is symmetric with clearing the criteria.lock: skipping either would leave the prior run's state active for the new goal.
 
 The stop guard does NOT auto-heal when GOAL.md changes or any other file-state heuristic fires. That design is intentional: any automatic heal keyed on .company/ file state is bypassable by an in-run actor that can write criteria.json (and also write GOAL.md, which is a sibling file). `reset-company-guard.js` is the ONLY safe path - it is a deliberate, auditable action run before criteria.json is written, not a silent in-guard reset.
 
@@ -388,7 +388,11 @@ CYCLE {N} VERDICT: {DONE or NOT DONE}
 ALL criteria pass + critic accepts = EXIT.
 Otherwise = loop, re-spawning only the FAILING tasks with the review feedback in their contracts.
 
-**Stall detector:** the reviewer keeps an `attempts` count on each criterion's entry in criteria.json (increment on every cycle it stays failing - the stop guard ignores extra fields). At `attempts >= 2` with same-shape evidence, the next THINK MUST produce a structurally different decomposition for that criterion: new approach, new surfaces, or HIRE. Re-issuing a near-identical contract after two same-shape failures is a planning bug, not persistence.
+**Stall detector:** the reviewer keeps an `attempts` count on each criterion's entry in criteria.json (increment on every cycle it stays failing - the stop guard ignores extra fields). At `attempts >= 2` with same-shape evidence, the next THINK MUST produce a structurally different decomposition for that criterion: new approach, new surfaces, or HIRE. Re-issuing a near-identical contract after two same-shape failures is a planning bug, not persistence. The reviewer agent file instructs the reviewer to increment `attempts` every cycle a criterion stays failing; that instruction is what puts the value into criteria.json so the stall detector and the high-stakes gate can read it.
+
+**ANTI-VACUOUS TEST:** a test must exercise the exact code path it claims to verify, never bypass it (e.g. by setting an env that short-circuits the code under test, or asserting on base state that predates the change). A test that passes against the pre-change code is vacuous and provides no signal. The reviewer confirms that every new test FAILS against the unfixed code before accepting it as evidence. The critic probes for this on every passing criterion.
+
+**FEATURE REACHABILITY:** a shipped feature that gates on a field or condition is dead if the authoring path that sets that field does not exist. When a new feature is introduced, the reviewer checks that the runtime path which produces the gating field is actually present in the skill or agent instructions, not just that the feature's code merged. The critic probes for unreachable gates on every new feature.
 
 ### COMPRESS (between cycles)
 

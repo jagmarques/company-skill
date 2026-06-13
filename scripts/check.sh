@@ -207,6 +207,14 @@ else
   note_fail "packaging installer coverage failed"
 fi
 
+# 16b. Stakes-routing reachability: stakes:high gate is wired in authoring rules, stall
+#      counter, reviewer, and critic. Fails against pre-fix code (non-vacuous).
+if node tests/stakes-routing.test.js; then
+  echo "ok: stakes-routing reachability matrix"
+else
+  note_fail "stakes-routing reachability matrix failed"
+fi
+
 # 17. Doc-command gate: every referenced script exists and no user-facing
 #     section in SKILL.md or agents/ uses a bare relative node scripts/x.js.
 if node scripts/check-doc-commands.js; then
