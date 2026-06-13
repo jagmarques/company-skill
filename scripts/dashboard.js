@@ -355,7 +355,8 @@ function parseAgentDetail(file, st) {
 }
 
 // Max age for a file-mtime-based fallback; content-based detection is primary.
-const ACTIVE_MS = 600000; // 10 min fallback - agents may pause for many minutes waiting on tools
+// Also used as the stale-tool_use cutoff: tool_use idle longer than this = finished.
+const ACTIVE_MS = 900000; // 15 min - stale tool_use agents beyond this are treated as finished
 
 // Read the last ~8 KB of a JSONL to extract the last stop_reason and last timestamp.
 // Returns { stopReason: string|null, lastTs: number|null }
@@ -413,19 +414,26 @@ function collectAgents(projDir, sessionId) {
     const mtimeMs = st ? st.mtimeMs : 0;
     const ageMs = now - mtimeMs;
 
-    // Status is driven by stop_reason, not mtime. tool_use = still waiting on a tool result
-    // (may be paused for many minutes); end_turn or any terminal reason = finished.
-    // mtime is only used to distinguish 'running' (file just updated) vs 'finishing' (idle pause).
+    // Status is driven by stop_reason + mtime age.
+    // tool_use = agent paused waiting for a tool result. If the file was updated
+    // recently (within ACTIVE_MS / 15 min) it is still running. If it has been
+    // idle longer than ACTIVE_MS, the agent died or was truncated: treat as finished.
+    // end_turn = always finished. Unknown stop_reason falls back to mtime alone.
     const { stopReason, lastTs } = st ? agentTailStatus(jsonl) : { stopReason: null, lastTs: null };
     const isToolUsePaused = stopReason === 'tool_use';
     const isEndTurn = stopReason === 'end_turn';
-    // active = not finished per content; never gated on mtime so long pauses don't drop the agent.
-    const active = st ? (!isEndTurn && stopReason !== null ? true : (stopReason === null && ageMs < ACTIVE_MS)) : false;
-    // Status: tool_use -> running (regardless of age); end_turn -> finished; unknown -> use mtime.
+    // A tool_use agent is only alive when its file was updated within ACTIVE_MS.
+    const toolUseActive = isToolUsePaused && ageMs < ACTIVE_MS;
+    // active = genuinely running or recently active
+    const active = st ? (toolUseActive || (!isEndTurn && stopReason !== null && !isToolUsePaused ? false
+      : (stopReason === null && ageMs < ACTIVE_MS))) : false;
+    // Status: tool_use + recent -> running; tool_use + stale -> finished (dropped/truncated).
+    // end_turn -> finished. unknown -> use mtime window.
     let status;
     if (!st) { status = 'unknown'; }
     else if (isEndTurn) { status = 'finished'; }
-    else if (isToolUsePaused) { status = 'running'; }
+    else if (isToolUsePaused && ageMs < ACTIVE_MS) { status = 'running'; }
+    else if (isToolUsePaused && ageMs >= ACTIVE_MS) { status = 'finished'; }
     else if (stopReason !== null) { status = 'finished'; }
     else if (ageMs < 30000) { status = 'running'; }
     else if (ageMs < ACTIVE_MS) { status = 'finishing'; }
@@ -964,6 +972,50 @@ if (SESSION_ID && ownEntry) {
   _heartbeat.unref();
 }
 
+// ---------- per-session restart toggle ----------
+// Config file: .company/context-guard-config.json
+// Shape: { "sessions": { "<sessionId>": { "enforceRestart": true|false } } }
+const TOGGLE_CONFIG = path.join(COMPANY_DIR, 'context-guard-config.json');
+
+function readToggleConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(TOGGLE_CONFIG, 'utf8') || '{}');
+  } catch (_) {
+    return { sessions: {} };
+  }
+}
+
+function writeToggleConfig(cfg) {
+  const tmp = TOGGLE_CONFIG + '.tmp.' + process.pid;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+    fs.renameSync(tmp, TOGGLE_CONFIG);
+  } catch (_) {
+    try { fs.unlinkSync(tmp); } catch (_2) { /* ignore */ }
+  }
+}
+
+// Returns the enforceRestart value for a session. Defaults to true when absent.
+function getEnforceRestart(sid) {
+  if (!sid) return true;
+  const cfg = readToggleConfig();
+  const s = cfg && cfg.sessions && cfg.sessions[sid];
+  if (s && typeof s === 'object' && s.enforceRestart === false) return false;
+  return true;
+}
+
+// Atomically flip enforceRestart for a session and return the new value.
+function flipEnforceRestart(sid) {
+  if (!sid) return true;
+  const cfg = readToggleConfig();
+  if (!cfg.sessions) cfg.sessions = {};
+  const current = (cfg.sessions[sid] && cfg.sessions[sid].enforceRestart === false) ? false : true;
+  const next = !current;
+  cfg.sessions[sid] = Object.assign({}, cfg.sessions[sid] || {}, { enforceRestart: next });
+  writeToggleConfig(cfg);
+  return next;
+}
+
 // ---------- /api/state ----------
 function buildState() {
   const daily = getCcusage('daily');
@@ -1064,7 +1116,7 @@ function buildState() {
     warning,
     tokens: { available: !!(daily || session || blocks), today, session: sessionInfo, block },
     savings: computeSavings(today, orch.sessionModel),
-    context: contextFill,
+    context: { ...contextFill, enforceRestart: getEnforceRestart(SESSION_ID) },
     agents: activeAgents.map((a) => ({
       agentType: a.agentType, model: a.model || null, description: a.description,
       status: a.status, runtimeMs: a.runtimeMs || null, tokens: a.tokens || 0, toolCalls: a.toolCalls || 0
@@ -1197,6 +1249,8 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
 .nd-val { font-family: var(--font-mono); font-size: 12px; }
 @keyframes activePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 @media (max-width: 760px) { .stats { gap: 1.5rem; } }
+.toggle-on { background: rgba(31,136,61,0.1) !important; border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 600; }
+.toggle-off { background: var(--hover) !important; color: var(--dim) !important; }
 </style>
 </head>
 <body>
@@ -1216,7 +1270,10 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
   </section>
 
   <div class="card ctx-card">
-    <h2>Context fill</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+      <h2 style="margin-bottom:0">Context fill</h2>
+      <button id="restart-toggle-btn" style="display:none;background:none;border:1px solid var(--line);border-radius:6px;cursor:pointer;padding:0.2rem 0.75rem;font-size:12px;color:var(--dim);white-space:nowrap;" title="Enable or disable the auto-restart block at the context threshold"></button>
+    </div>
     <div id="ctx-fill"></div>
   </div>
 
@@ -1395,6 +1452,18 @@ function renderContextFill(s) {
   const root = $('ctx-fill');
   root.replaceChildren();
   const ctx = s.context;
+
+  // Update the toggle button whenever we have a bound session
+  const toggleBtn = $('restart-toggle-btn');
+  if (toggleBtn && s.sessionId && ctx) {
+    const enforce = ctx.enforceRestart !== false;
+    toggleBtn.style.display = '';
+    toggleBtn.textContent = 'Auto-restart at ' + Math.round((ctx.threshold || 0.5) * 100) + '%: ' + (enforce ? 'ON' : 'OFF');
+    toggleBtn.className = enforce ? 'toggle-on' : 'toggle-off';
+  } else if (toggleBtn) {
+    toggleBtn.style.display = 'none';
+  }
+
   if (!ctx || ctx.used === 0) {
     root.appendChild(el('div', 'muted', 'No transcript usage found'));
     return;
@@ -1422,8 +1491,34 @@ function renderContextFill(s) {
   row.appendChild(el('span', 'ctx-pct ' + colorClass, pct + '%'));
   row.appendChild(el('span', 'muted', fmtTok(ctx.used) + ' / ' + fmtTok(ctx.window) + ' tokens'));
   if (ctx.modelId) row.appendChild(el('span', 'muted', shortModel(ctx.modelId)));
-  if (ctx.fill >= ctx.threshold) row.appendChild(el('span', 'pill warn', 'restart due'));
+  if (ctx.fill >= ctx.threshold && ctx.enforceRestart !== false) row.appendChild(el('span', 'pill warn', 'restart due'));
   root.appendChild(row);
+}
+
+// Set up the toggle button click handler once
+let _toggleSetup = false;
+function setupRestartToggle() {
+  if (_toggleSetup) return;
+  _toggleSetup = true;
+  const btn = $('restart-toggle-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/restart-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      // Update button immediately without waiting for poll
+      const threshPct = btn.textContent.match(/(\d+)%/) ? btn.textContent.match(/(\d+)%/)[1] : '50';
+      const enforce = data.enforceRestart !== false;
+      btn.textContent = 'Auto-restart at ' + threshPct + '%: ' + (enforce ? 'ON' : 'OFF');
+      btn.className = enforce ? 'toggle-on' : 'toggle-off';
+    } catch (_) { /* ignore */ }
+    btn.disabled = false;
+  });
 }
 
 // MUST-FIX 1: visible unbound banner
@@ -1964,6 +2059,7 @@ async function tick() {
     renderCycles(s);
     renderBurn(s);
     setupTreeInteractions();
+    setupRestartToggle();
     $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
   } catch (e) {
     $('updated').textContent = 'disconnected';
@@ -2001,6 +2097,29 @@ const server = http.createServer((req, res) => {
     const reg = readRegistry();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ sessions: reg.sessions }));
+    return;
+  }
+  // POST /api/restart-toggle: flip the per-session enforceRestart toggle.
+  // Body: { "sessionId": "<id>" } (optional; falls back to the bound SESSION_ID).
+  // Returns: { "sessionId": "<id>", "enforceRestart": true|false }
+  if (req.method === 'POST' && url === '/api/restart-toggle') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let sid = SESSION_ID;
+      try {
+        const parsed = JSON.parse(body || '{}');
+        if (parsed.sessionId && typeof parsed.sessionId === 'string') sid = parsed.sessionId;
+      } catch (_) { /* ignore */ }
+      if (!sid) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'no session id bound to this dashboard' }));
+        return;
+      }
+      const newValue = flipEnforceRestart(sid);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ sessionId: sid, enforceRestart: newValue }));
+    });
     return;
   }
   res.writeHead(404, { 'Content-Type': 'text/plain' });
