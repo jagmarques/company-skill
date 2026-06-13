@@ -132,6 +132,9 @@ function refreshCcusage(sub) {
 }
 
 // ---------- pricing (per MTok list prices) ----------
+// pin = current top tier since Fable 5 is pulled; revert to fable when it returns
+const TOP_TIER_BASELINE = 'claude-opus-4-8';
+
 function priceFor(model) {
   const m = String(model || '').toLowerCase();
   if (m.includes('fable') || m.includes('mythos'))
@@ -171,22 +174,29 @@ function computeSavings(win) {
       caveat: 'Approximate: computed from API list prices. On a subscription plan these dollars are notional.'
     };
   }
-  let best = null, bestPrice = null, estimated = false;
-  for (const m of win.models) {
-    const p = priceFor(m.model);
-    if (p.est) estimated = true;
-    if (!bestPrice || p.i > bestPrice.i) { bestPrice = p; best = m.model; }
-  }
+  let estimated = false;
+  // Use a fixed top-tier baseline so the saving means "vs all TOP_TIER_BASELINE".
+  const topPrice = priceFor(TOP_TIER_BASELINE);
+  // Hypothetical cost if every token billed at the top-tier rate.
   const hypothetical =
-    (win.input * bestPrice.i + win.output * bestPrice.o + win.cacheCreation * bestPrice.w + win.cacheRead * bestPrice.r) / 1e6;
-  const tieringSaved = Math.max(0, hypothetical - win.cost);
+    (win.input * topPrice.i + win.output * topPrice.o +
+      win.cacheCreation * topPrice.w + win.cacheRead * topPrice.r) / 1e6;
+  // Recompute actual cost from priceFor() so both sides use the same price table.
+  // Using win.cost (from ccusage) here would introduce phantom savings when
+  // ccusage's internal table differs from priceFor() (e.g. during FORCE_BEST).
+  let actualCost = 0;
   let cacheSaved = 0;
   for (const m of win.models) {
     const p = priceFor(m.model);
+    if (p.est) estimated = true;
+    actualCost +=
+      (m.input * p.i + m.output * p.o + m.cacheCreation * p.w + m.cacheRead * p.r) / 1e6;
+    // Cache savings = tokens read at cache price vs what they would cost at full input price.
     cacheSaved += (m.cacheRead * (p.i - p.r)) / 1e6;
   }
+  const tieringSaved = Math.max(0, hypothetical - actualCost);
   return {
-    tieringSaved, cacheSaved, bestModel: best, estimated,
+    tieringSaved, cacheSaved, topTierModel: TOP_TIER_BASELINE, estimated,
     caveat: 'Approximate: computed from API list prices. On a subscription plan these dollars are notional.'
   };
 }
@@ -697,7 +707,7 @@ function renderHeader(s) {
     const su = t.session && t.session.usage;
     add('session cost', su ? fmtUsd(su.cost) : '?', su ? fmtTok(su.total) + ' tokens' : 'session ' + (t.session && t.session.id || '?'));
     if (s.savings && s.savings.tieringSaved !== null) {
-      add('saved by model tiering', fmtUsd(s.savings.tieringSaved) + (s.savings.estimated ? ' est.' : ''), 'vs all-' + shortModel(s.savings.bestModel));
+      add('saved by model tiering', fmtUsd(s.savings.tieringSaved) + (s.savings.estimated ? ' est.' : ''), 'vs all-' + shortModel(s.savings.topTierModel) + ' (current top tier)');
       add('saved by prompt caching', fmtUsd(s.savings.cacheSaved) + (s.savings.estimated ? ' est.' : ''), 'cache reads vs full input price');
     }
   }
