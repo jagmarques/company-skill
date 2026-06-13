@@ -18,3 +18,6 @@ All notable changes to the /company skill are recorded here. Format follows Keep
 ### Fixed
 - The stop-guard CANCEL is now persistent. It was single-use and got consumed on the first stop attempt, which could loop a run forever when a criterion could only be met by a human (#28).
 - The four guard holes a red-team battle-test found: deleting `criteria.lock` to re-snapshot a reduced criteria set, a session rewriting `OWNER` to evict itself, a length-only VERIFY-WITH check, and a bare `SOURCE:` passing the findings gate. The lock and ownership state now anchor outside the project directory (#29).
+
+### Architecture
+- ROI-maximizing proactivity threaded through the full architecture: delegation contracts carry a required `ROI:` field so leads justify value-over-effort; the lead ranks contracts by ROI and the orchestrator waves them highest-value-first; workers deliver the best-achievable result within scope (not just the minimum that clears DONE-WHEN) and surface high-value adjacent opportunities via `PROPOSE:`; the critic gains probe 9 (did the worker take the highest-ROI approach or just the minimum?); the reviewer's EFFICIENCY dimension now explicitly flags ignored higher-ROI paths. One-worker-per-surface and do-only-assigned-task guardrails are restated so this does not become scope creep.

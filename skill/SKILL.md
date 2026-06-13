@@ -181,11 +181,12 @@ VERIFY-WITH: {the exact command whose output proves DONE-WHEN}
 OUT-OF-SCOPE: {what this task must not touch}
 DEPENDS-ON: {task numbers this task needs finished first, or "none"}
 MODEL: {cheap | mid | strong, with the lead's one-line justification, or omit for mid}
+ROI: {one line: why this task is worth doing now, relative to alternatives}
 ```
 
 No command, no task. If nobody can write a VERIFY-WITH command (or an equally concrete check, like a named URL to screenshot), the task is not ready to assign. Vague delegations are rejected structurally, not patched at review time.
 
-MODEL is optional and defaults to mid. When present it carries the lead's judgment about the task's difficulty, and the orchestrator maps it to a model at spawn time (see Model assignment). Lay contracts out stable-first: the fixed template fields and pasted boilerplate at the top, the volatile values (paths, SHAs, cycle feedback) at the bottom, so repeated spawns share a cacheable prompt prefix.
+MODEL is optional and defaults to mid. When present it carries the lead's judgment about the task's difficulty, and the orchestrator maps it to a model at spawn time (see Model assignment). ROI is required and carries the lead's value rationale, why this task over an alternative, so the orchestrator can rank contracts by value-over-effort and triage surfaced proposals meaningfully. Lay contracts out stable-first: the fixed template fields and pasted boilerplate at the top, the volatile values (paths, SHAs, cycle feedback) at the bottom, so repeated spawns share a cacheable prompt prefix.
 
 ## Loop
 
@@ -204,7 +205,7 @@ Write `.company/cycles/cycle-{N}-briefing.md` first (exact name, the PreCompact 
 
 As CEO, read the GOAL and COMPANY.md. Decide which departments and employees are RELEVANT to this specific goal. Only activate relevant ones. A mobile app goal does not need a Topologist. Write `.company/active-roster.md`: each activated employee with a one-line reason.
 
-**Effort scaling:** size the spawn to the goal before spawning anything. Trivial goal (single surface, known fix): no leads, 1-2 contracts written by you. Medium (one department's scope, one wave): 1-2 leads. Complex (multi-surface or unknown root cause): full parallel leads + dependency waves. State the chosen tier in the cycle briefing so the critic can challenge over- or under-spawn.
+**Effort scaling:** size the spawn to the goal before spawning anything. Trivial goal (single surface, known fix): no leads, 1-2 contracts written by you. Medium (one department's scope, one wave): 1-2 leads. Complex (multi-surface or unknown root cause): full parallel leads + dependency waves. State the chosen tier in the cycle briefing so the critic can challenge over- or under-spawn. Tie effort to ROI: spend heavier spawn on the highest-value decomposition of the goal, not the most obvious. When two decompositions are both sound, pick the one that unblocks more downstream work or closes the riskiest criterion first.
 
 Spawn ALL relevant department leads in parallel: one `company-lead` Agent call per department, every Agent call in a SINGLE message. Sequential lead spawns are a bug. If an Agent call fails transiently, retry once, then record the lead as unavailable and fold its planning into your own.
 
@@ -216,7 +217,7 @@ If a lead sees a skill gap: it writes `HIRE: {role}, {why}` and you add the role
 
 ### Task merge and dedup (orchestrator)
 
-Collect every lead's contracts from the per-dept files (`cycle-{N}-tasks-{dept}.md`) and merge them into a single file. Then run the mechanical shape gate: `node <skill-scripts-dir>/check-contracts.js .company/cycles/cycle-{N}-tasks.md` (where `<skill-scripts-dir>` is the scripts directory next to SKILL.md in the installed skill). The gate runs on the merged `cycle-{N}-tasks.md` file, not the individual per-dept files. A contract missing a field or carrying a vacuous VERIFY-WITH is returned to its lead, never patched silently. Then dedup by SURFACE, not by task string: list the files, pages, and endpoints each task touches. Two tasks touching the same surface get merged into one worker or serialized. One worker per surface per cycle. Write the merged list to `.company/cycles/cycle-{N}-tasks.md` and `.company/active-tasks.md`, one task per line.
+Collect every lead's contracts from the per-dept files (`cycle-{N}-tasks-{dept}.md`) and merge them into a single file. Then run the mechanical shape gate: `node <skill-scripts-dir>/check-contracts.js .company/cycles/cycle-{N}-tasks.md` (where `<skill-scripts-dir>` is the scripts directory next to SKILL.md in the installed skill). The gate runs on the merged `cycle-{N}-tasks.md` file, not the individual per-dept files. A contract missing a field or carrying a vacuous VERIFY-WITH is returned to its lead, never patched silently. Then dedup by SURFACE, not by task string: list the files, pages, and endpoints each task touches. Two tasks touching the same surface get merged into one worker or serialized. One worker per surface per cycle. Order the merged list by ROI field (highest value-over-effort first) so the dependency waves execute the most impactful work early, not arbitrarily. Triage any PROPOSE lines from prior cycle findings at this point: high-value proposals become new contracts, low-value ones are noted in the briefing and deferred. Write the merged list to `.company/cycles/cycle-{N}-tasks.md` and `.company/active-tasks.md`, one task per line.
 
 ### EXECUTE (orchestrator spawns workers in dependency waves)
 
@@ -249,7 +250,7 @@ SKILL-MISSING.
 
 **EXTERNAL FACT RULE (highest priority):** before writing ANY public-facing output (GitHub comments, PR descriptions, emails, blog posts) that states a specific fact about an external project (version numbers, API details, feature claims, architecture), the worker MUST verify it first using WebFetch or `gh api` against the project's actual docs, source, or README. If it cannot verify, it says "not sure" instead of guessing. NEVER cite external numbers from memory. ONE STRIKE: if corrected, post a one-line factual correction and stop. Never argue and never guess a second time.
 
-**Scope:** do ONLY the assigned task. Adjacent problems get one line in findings (`ALSO-FOUND: ...`) for the next THINK, never fixed unbidden.
+**Scope:** do ONLY the assigned task. Adjacent problems get one line in findings (`ALSO-FOUND: ...`) for the next THINK, never fixed unbidden. For genuinely high-leverage opportunities spotted during the work, add a first-class line: `PROPOSE: {opportunity} - ROI: {why high value}`. The orchestrator's next THINK triages these and may promote them to contracts. Surface it, do not execute it unbidden. The one-worker-per-surface and do-only-assigned-task guardrails stay intact: PROPOSE is a signal, not a license to act.
 
 **Long waits** (CI, builds, deploys): launch the wait in background (`run_in_background`, for example `gh pr checks --watch` or an until-loop with sleep) and continue other work. Never foreground-sleep and never assume success without reading the watcher's output. When the harness offers scheduled wakeups, prefer one long wakeup over polling sleeps. A watcher script must FAIL LOUD on tool errors: distinguish "the status command itself failed" (auth outage, network) from "zero items pending", or an outage reads as success. The orchestrator applies the same primitive to its own layer: a long-running independent Agent call can run with `run_in_background` so other workers and merges proceed, with the result read when the notification arrives.
 
