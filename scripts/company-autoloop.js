@@ -377,23 +377,33 @@ function spawnTurn(opts) {
 
 // ---------- run one work turn with a wall-clock backstop ----------
 // Awaits natural exit (the expected headless behavior). If the turn never exits
-// within turnTimeoutSecs (model looping on a blocked stop), kill its process group
-// and return so the loop can proceed to the fill check on the partial transcript.
+// within turnTimeoutSecs (model looping on a blocked stop, or a sub-agent holding
+// a pipe open), kill its process group AND resolve a timed-out result here. The
+// resolve must NOT depend on handle.done firing: a hung child whose group kill is
+// still in flight could leave the loop awaiting forever. So the timer awaits
+// killChildGroup, then resolves itself; whichever of natural-exit / timeout-kill
+// wins first settles the promise and cancels the other. Clear the timer on exit.
 function runTurn(opts) {
   const handle = spawnTurn(opts);
   return new Promise(function (resolve) {
     let settled = false;
-    const timer = setTimeout(function () {
-      if (settled) return;
-      log('WARN work turn exceeded ' + turnTimeoutSecs + 's wall clock - killing it');
-      killChildGroup(handle.child, 1500);
-    }, turnTimeoutSecs * 1000);
-    handle.done.then(function (res) {
+    function settle(res) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve(res);
-    });
+    }
+    const timer = setTimeout(function () {
+      if (settled) return;
+      log('WARN work turn exceeded ' + turnTimeoutSecs + 's wall clock - killing it');
+      // Kill the detached process group (the work child AND its sub-agents), then
+      // resolve a timed-out result so the main loop proceeds to the fill check on
+      // the partial transcript. Do not wait on handle.done: resolve on our own.
+      killChildGroup(handle.child, 1500).then(function () {
+        settle({ code: null, stdoutBytes: 0, stderrTail: '', killed: true, timedOut: true });
+      });
+    }, turnTimeoutSecs * 1000);
+    handle.done.then(function (res) { settle(res); });
   });
 }
 
@@ -502,8 +512,13 @@ async function main() {
       process.exit(0);
     }
 
-    // A turn that errored out (bad binary, crash) counts toward the error streak.
-    if (turnResult.code !== 0) {
+    // A timed-out turn is NOT an error: the backstop killed a hung/over-long turn,
+    // so proceed to the fill check on the partial transcript (skip the error path).
+    if (turnResult.timedOut) {
+      log('turn ' + turn + ' hit the ' + turnTimeoutSecs +
+          's backstop - proceeding to fill on the partial transcript');
+    } else if (turnResult.code !== 0) {
+      // A turn that errored out (bad binary, crash) counts toward the error streak.
       errorStreak += 1;
       log('WARN turn ' + turn + ' exited ' + turnResult.code +
           ' (error streak ' + errorStreak + '/' + MAX_ERROR_STREAK + ')' +

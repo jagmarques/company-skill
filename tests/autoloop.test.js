@@ -152,6 +152,15 @@ function writeMockClaude(scratch, companyDir, projectsDir, mode, tokensByCall) {
     '  const idx = norm.length - 1;',
     '  const tokens = tokensByCall[idx] !== undefined ? tokensByCall[idx] : tokensByCall[tokensByCall.length - 1];',
     '  appendUsage(tokens);',
+    '  // Simulate a work turn that writes partial state (the usage block above) and',
+    '  // then HANGS FOREVER. The supervisor turn-timeout backstop must kill it. We',
+    '  // catch SIGTERM so the kill must escalate to SIGKILL (the real run had this).',
+    "  const workHangs = process.env.__MOCK_WORK_HANGS === '1';",
+    '  if (workHangs) {',
+    "    process.on('SIGTERM', function () {});",
+    '    setInterval(function () {}, 1000);',
+    '    return;',
+    '  }',
     '}',
     '// Exit cleanly (expected headless behavior - a -p turn completes and exits).',
     'process.exit(0);',
@@ -183,8 +192,11 @@ function runSupervisor(opts) {
     '--max-turns', String(opts.maxTurns !== undefined ? opts.maxTurns : 6),
     '--permission-mode', 'bypassPermissions',
     '--restart-timeout-secs', String(opts.restartTimeoutSecs !== undefined ? opts.restartTimeoutSecs : 10),
-    'test-goal',
   ];
+  if (opts.turnTimeoutSecs !== undefined) {
+    args.push('--turn-timeout-secs', String(opts.turnTimeoutSecs));
+  }
+  args.push('test-goal');
 
   const env = Object.assign({}, process.env, {
     CLAUDE_BIN: mockPath,
@@ -578,6 +590,147 @@ check('NON-VACUITY: OLD await-runTurn-first driveRestart HANGS against a hung re
     'REACHED_POLL - the awaited restart invocation never exited so the marker poll ' +
     'loop was unreachable). The fixed monitor-and-kill driveRestart passes Case 8 on ' +
     'the SAME hung mock. The async-spawn-and-kill path is load-bearing.\n'
+  );
+});
+
+// ---------- Case 10: HUNG work turn is killed by the wall-clock backstop ----------
+// The real bug: a work turn `claude -p` writes partial state then NEVER exits, and
+// the main loop awaits runTurn forever (a 9-minute real run with --turn-timeout-secs
+// 300 was never killed). The fix: runTurn starts a wall-clock timer on spawn, and on
+// fire it KILLS the detached process group and RESOLVES a timed-out result so the
+// loop proceeds to the fill check on the partial transcript. The mock catches
+// SIGTERM, so the kill must escalate to SIGKILL. With a 3s backstop and fill stepped
+// 300->600 the first hung turn is killed, fill is read (0.30), the second hung turn
+// is killed and fill crosses (0.60), then a restart is driven. We assert: a work pid
+// is GONE after the backstop, fill was computed (the loop did not hang), and progress
+// was made past the first turn.
+check('HUNG work turn: turn-timeout backstop kills the hung work child, loop proceeds', function () {
+  let invFile;
+  try {
+    const r = runSupervisor({
+      mode: 'restart',
+      tokensByCall: [300, 600],
+      maxTurns: 3,
+      turnTimeoutSecs: 3,
+      extraEnv: { __MOCK_WORK_HANGS: '1' },
+      timeout: 30000,
+    });
+    invFile = r.invFile;
+    if (r.timedOut) {
+      return 'supervisor TIMED OUT against a hung work turn - the backstop never fired ' +
+        '(runTurn awaited the forever-hanging child)\nstderr: ' + r.stderr.slice(-600);
+    }
+    const invs = readInvocations(r.invFile);
+    if (invs.length < 1) {
+      return 'no work invocation recorded\nstderr: ' + r.stderr.slice(-400);
+    }
+    // The first hung work child pid must be GONE (the backstop killed its group).
+    const firstWorkPid = invs[0].pid;
+    if (pidAlive(firstWorkPid)) {
+      return 'hung work child pid ' + firstWorkPid + ' still alive - backstop did not kill it';
+    }
+    // The loop must have logged the backstop firing and then computed fill (proof it
+    // proceeded past the hung turn rather than stalling forever).
+    if (r.stderr.indexOf('backstop') === -1) {
+      return 'no backstop log line - the timeout path did not fire\nstderr: ' + r.stderr.slice(-600);
+    }
+    if (r.stderr.indexOf('fill=') === -1) {
+      return 'supervisor never computed fill after the hung turn (it stalled)\nstderr: ' +
+        r.stderr.slice(-600);
+    }
+    // It must have run more than one turn (it did not stall on turn 1 forever).
+    if (invs.length < 2) {
+      return 'supervisor ran only ' + invs.length + ' invocation - it did not proceed ' +
+        'past the first hung turn\nstderr: ' + r.stderr.slice(-600);
+    }
+  } finally {
+    if (invFile) reapPids(invFile);
+  }
+});
+
+// ---------- Case 11: NON-VACUITY - a runTurn WITHOUT the timeout-kill HANGS ----------
+// Reconstruct the buggy runTurn (no wall-clock kill: it ONLY awaits the child's
+// natural exit) inside a tiny supervisor variant. Run it against the same hung-work
+// mock with a bounded harness timeout. Because the mock never exits, the awaited
+// runTurn never resolves and the variant HANGS until our bounded timeout fires. We
+// capture that timeout as the non-vacuity proof: the fixed runTurn passes Case 10
+// where this no-timeout-kill design times out on the SAME hung work mock.
+check('NON-VACUITY: a runTurn WITHOUT the timeout-kill HANGS against a hung work turn', function () {
+  const scratch = makeScratch();
+  const companyDir = path.join(scratch, '.company');
+  const projectsDir = path.join(scratch, 'projects');
+  const { mockPath, invFile } =
+    writeMockClaude(scratch, companyDir, projectsDir, 'restart', [300]);
+
+  // A minimal supervisor whose runTurn has NO wall-clock backstop: it spawns the
+  // work child and ONLY awaits its natural exit (the original bug). One work turn
+  // against the hung mock makes it hang forever.
+  const noKillVariant = [
+    "'use strict';",
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const { spawn } = require('node:child_process');",
+    'const companyDir = process.env.COMPANY_DIR;',
+    'const claudeBin = process.env.CLAUDE_BIN;',
+    'const sessionId = "novac-work-sid";',
+    '// BUGGY runTurn: spawn the work child, await ONLY its natural exit. No timer,',
+    '// no group kill. A hung child makes this Promise never resolve.',
+    'function runTurnNoKill() {',
+    '  return new Promise(function (resolve) {',
+    "    const c = spawn(claudeBin, ['-p', '--session-id', sessionId, 'do-work'],",
+    "      { cwd: process.cwd(), env: Object.assign({}, process.env, { COMPANY_DIR: companyDir }),",
+    "        stdio: ['ignore','pipe','pipe'], detached: true });",
+    '    c.stdout.on("data", function(){});',
+    '    c.stderr.on("data", function(){});',
+    '    c.on("exit", function(code){ resolve(code); });',
+    '  });',
+    '}',
+    'async function main() {',
+    '  await runTurnNoKill();', // HANGS here forever: the mock never exits.
+    '  console.log("REACHED_AFTER_TURN");',
+    '  process.exit(0);',
+    '}',
+    'main();',
+  ].join('\n');
+
+  const variantPath = path.join(scratch, 'supervisor-nokill.js');
+  fs.writeFileSync(variantPath, noKillVariant);
+
+  let res;
+  try {
+    res = spawnSync(process.execPath, [variantPath], {
+      cwd: scratch,
+      env: Object.assign({}, process.env, {
+        CLAUDE_BIN: mockPath,
+        COMPANY_DIR: companyDir,
+        __MOCK_WORK_HANGS: '1',
+      }),
+      encoding: 'utf8',
+      timeout: 6000,
+      killSignal: 'SIGKILL',
+    });
+  } finally {
+    reapPids(invFile);
+  }
+
+  const harnessTimedOut = res.error && res.error.code === 'ETIMEDOUT';
+  if (!harnessTimedOut) {
+    return 'the no-timeout-kill runTurn did NOT hang (exited code=' + res.status +
+      ', stdout=' + JSON.stringify((res.stdout || '').trim()) + '). The hung-work mock ' +
+      'should have made it hang on the awaited child - test would be vacuous.';
+  }
+  if ((res.stdout || '').indexOf('REACHED_AFTER_TURN') !== -1) {
+    return 'no-timeout-kill runTurn proceeded past the turn - it should never resolve ' +
+      'against a forever-hanging child';
+  }
+
+  process.stderr.write(
+    '[autoloop.test] NON-VACUITY: a runTurn WITHOUT the wall-clock timeout-kill HUNG ' +
+    'against a hung-work mock (bounded 6000ms harness timeout fired, never logged ' +
+    'REACHED_AFTER_TURN - the awaited work child never exited so the loop could never ' +
+    'proceed). The fixed runTurn (start a timer on spawn, kill the detached group on ' +
+    'fire, resolve a timed-out result) passes Case 10 on the SAME hung mock. The ' +
+    'wall-clock backstop kill is load-bearing.\n'
   );
 });
 
