@@ -75,19 +75,19 @@ try {
 }
 
 // Check session ownership before doing any work.
-if (sessionId) {
-  try {
-    const rawOwners = fs.readFileSync(ownerPath, 'utf8')
-      .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-    const valid = rawOwners.filter(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
-    if (rawOwners.length > 0 && valid.length === rawOwners.length) {
-      // Clean OWNER file: only act for listed sessions.
-      if (valid.indexOf(sessionId) === -1) process.exit(0);
-    }
-    // Garbled OWNER or missing OWNER: fall through and gate (fail-closed for scoping).
-  } catch (e) {
-    // Missing OWNER = legacy state, gate all sessions.
+// Null sessionId with a clean OWNER list = unidentifiable session, fail-open (allow).
+// Null sessionId with no OWNER / garbled OWNER = legacy gate-all mode, fall through.
+try {
+  const rawOwners = fs.readFileSync(ownerPath, 'utf8')
+    .split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+  const valid = rawOwners.filter(function (l) { return /^[A-Za-z0-9][A-Za-z0-9._-]{7,}$/.test(l); });
+  if (rawOwners.length > 0 && valid.length === rawOwners.length) {
+    // Clean OWNER file: unidentifiable (null) or unlisted session is not a company session.
+    if (!sessionId || valid.indexOf(sessionId) === -1) process.exit(0);
   }
+  // Garbled OWNER or missing OWNER: fall through and gate (fail-closed for scoping).
+} catch (e) {
+  // Missing OWNER = legacy state, gate all sessions.
 }
 
 // No transcript path means we cannot measure fill: fail-open.
