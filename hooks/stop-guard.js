@@ -12,6 +12,13 @@
 // The external lock is authoritative for criteria.lock, the external owners log is
 // append-only and makes OWNER rewrite-eviction impossible. Degrades gracefully
 // when ~/.claude is unwritable (falls back to .company-only behavior, no crash).
+//
+// SECURITY INVARIANT: a locked id removed from criteria.json ALWAYS blocks, with
+// no heuristic escape. There is NO in-guard self-heal. Any file-state heuristic
+// (mtime, content hash, goal text) is bypassable by an in-run actor that can write
+// .company/ files. The correct way to clear a stale anchor for a new goal is the
+// deliberate reset in scripts/reset-company-guard.js (run by a human or the
+// orchestrator at parse time, never triggered automatically by stop-guard).
 
 const fs = require('fs');
 const path = require('path');
@@ -23,8 +30,6 @@ const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
 const ownerPath = path.join(companyDir, 'OWNER');
 
-// External anchor: keyed on sha256(realpath(companyDir)).slice(0,16) so
-// rewriting GOAL.md or criteria.json cannot rotate the key and orphan the anchor.
 function getAnchorDir() {
   try {
     const real = fs.realpathSync(companyDir);
@@ -166,6 +171,13 @@ if (fs.existsSync(criteriaPath)) {
   // If the external lock exists, it is the source of truth (rm .company/criteria.lock
   // becomes a no-op, .company lock is healed from the external copy). If the external
   // lock is missing this is a genuine first sight.
+  //
+  // NO self-heal: a locked id removed from criteria.json BLOCKS unconditionally.
+  // There is no file-state heuristic (mtime, content hash, GOAL text) that can
+  // distinguish a legitimate new-goal run from an in-run tamper, because the same
+  // in-run actor that writes criteria.json can also write GOAL.md (sibling files).
+  // Use scripts/reset-company-guard.js to deliberately clear a stale anchor when
+  // starting a new goal. That is an explicit, auditable action, not a silent heal.
   const lockPath = path.join(companyDir, 'criteria.lock');
   const extLockPath = anchorDir ? path.join(anchorDir, 'lock') : null;
   const currentIds = all
@@ -195,7 +207,7 @@ if (fs.existsSync(criteriaPath)) {
   }
 
   if (lockedIds === null) {
-    // Genuine first sight: snapshot to both external and .company.
+    // Genuine first sight: snapshot lock to both external and .company.
     const ad = ensureAnchorDir(anchorDir);
     if (ad && extLockPath) {
       try { fs.writeFileSync(extLockPath, currentIds.join('\n') + '\n'); } catch (e) {}
