@@ -47,6 +47,37 @@ The installs are PINNED to reviewed upstream refs (gstack@1.0.5, get-shit-done-c
 
 If an install fails, continue anyway. Any task whose assigned skill turns out to be missing falls back to raw tools and notes `SKILL-MISSING` in its findings. Never loop retrying a Skill call that does not exist.
 
+Step 1b: Start the observability dashboard (idempotent). Run this Bash block IMMEDIATELY after Step 1:
+
+```bash
+_DASH_PORT="${COMPANY_DASHBOARD_PORT:-7777}"
+_DASH_SCRIPT="$(dirname "$(npm root -g 2>/dev/null || echo '')")/company-skill/scripts/dashboard.js"
+# Try local install paths if global is absent
+for _p in \
+  "$(npm root -g 2>/dev/null)/company-skill/scripts/dashboard.js" \
+  "$(dirname "$(command -v claude 2>/dev/null || echo '')")/../lib/node_modules/company-skill/scripts/dashboard.js" \
+  "$HOME/.claude/skills/company/scripts/dashboard.js" \
+  "$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/scripts/dashboard.js" \
+  "./scripts/dashboard.js"; do
+  [ -f "$_p" ] && _DASH_SCRIPT="$_p" && break
+done
+if ! command -v node > /dev/null 2>&1 || [ ! -f "$_DASH_SCRIPT" ]; then
+  true  # node or script absent - skip silently
+elif curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
+  echo "Dashboard already running: http://127.0.0.1:${_DASH_PORT}"
+else
+  node "$_DASH_SCRIPT" --port "$_DASH_PORT" > /tmp/company-dashboard-${_DASH_PORT}.log 2>&1 &
+  sleep 1
+  if curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
+    echo "Dashboard started: http://127.0.0.1:${_DASH_PORT}"
+  else
+    echo "Dashboard start attempted: http://127.0.0.1:${_DASH_PORT} (check /tmp/company-dashboard-${_DASH_PORT}.log)"
+  fi
+fi
+```
+
+The dashboard binds 127.0.0.1 only and reads local files - nothing is sent anywhere. Override the port with `COMPANY_DASHBOARD_PORT`. Running `/company` a second time detects the already-running server and prints the URL without starting a second instance.
+
 Step 2: Print banner as plain text (NOT Bash):
 
 ```
@@ -122,6 +153,7 @@ Print as plain text (NOT Bash):
 
 ════════════════════════════════════════════════
 CYCLE {N} - THINK > EXECUTE > VERIFY
+Dashboard: http://127.0.0.1:{COMPANY_DASHBOARD_PORT or 7777}
 ════════════════════════════════════════════════
 
 Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything. Also re-run ONE cheap READ-ONLY check from the previous cycle (the cheapest side-effect-free passing VERIFY-WITH, or `git status` plus one criterion's read probe): environment rot caught at cycle start costs one command. Caught mid-cycle it costs a wave. Never re-run a VERIFY-WITH that has side effects (publish, deploy, write). When the goal names a repo root and `.company/codegraph/graph.json` exists, also run `node scripts/codegraph.js status --root <root>` (read-only, in the installed skill: the scripts directory next to SKILL.md) and write FRESH or STALE(n) into the briefing.
@@ -322,6 +354,20 @@ The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the 
   cycles/cycle-{N}-cost.json   ← written by the digest (totalCost, totalTokens)
   {dept}/{employee}.md         ← per-employee findings (persist across sessions)
 ```
+
+## Dashboard
+
+`scripts/dashboard.js` is a zero-dependency localhost server showing live token cost, active agents, criteria progress, and cycle stats. The preamble auto-starts it on first `/company` run and prints its URL. Subsequent runs detect the running server and skip the launch.
+
+**Port:** defaults to 7777. Override with `COMPANY_DASHBOARD_PORT` (e.g. `export COMPANY_DASHBOARD_PORT=9000`).
+
+**Accessing it:** open the printed URL in any browser. The page polls every 3 seconds.
+
+**Log:** `/tmp/company-dashboard-{PORT}.log` captures startup output.
+
+**Behavior if node or the script is absent:** the Step 1b snippet exits silently - the skill continues without the dashboard.
+
+The dashboard binds 127.0.0.1 only and reads local files. Nothing is sent anywhere.
 
 ## Restart mode (`/company restart`) - context handoff
 
