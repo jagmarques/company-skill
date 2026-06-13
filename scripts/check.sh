@@ -276,6 +276,14 @@ else
   note_fail "dashboard D1/D4 tests failed"
 fi
 
+# 25. Autoloop supervisor: mock-driven cycle test (fresh session ids, NEXT.md seeding,
+#     no --continue regression, CANCEL, max-cycles cap, real-schema done, non-vacuity proofs).
+if node tests/autoloop.test.js; then
+  echo "ok: autoloop supervisor matrix"
+else
+  note_fail "autoloop supervisor matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
