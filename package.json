@@ -26,6 +26,7 @@
     "scripts/secret-scan.js",
     "scripts/reset-company-guard.js",
     "scripts/cleanup.js",
+    "scripts/statusline.js",
     "commands/run.md",
     "commands/status.md",
     "commands/resume.md",

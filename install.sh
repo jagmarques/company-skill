@@ -36,7 +36,7 @@ done
 # Scripts (runtime dependencies referenced from SKILL.md).
 # check.sh, lint-*, check-doc-commands.js, check-version.js, and test files stay in the repo only.
 mkdir -p "$HOME/.claude/skills/company/scripts"
-for script in codegraph.js check-contracts.js check-findings.js restart-debate.js dashboard.js secret-scan.js reset-company-guard.js cleanup.js; do
+for script in codegraph.js check-contracts.js check-findings.js restart-debate.js dashboard.js secret-scan.js reset-company-guard.js cleanup.js statusline.js; do
   fetch "$REPO/scripts/$script" "$HOME/.claude/skills/company/scripts/$script" || echo "Warning: failed to download script $script"
 done
 

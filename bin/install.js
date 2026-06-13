@@ -29,6 +29,7 @@ const INSTALL_SCRIPTS = [
   'secret-scan.js',
   'reset-company-guard.js',
   'cleanup.js',
+  'statusline.js',
 ];
 const scriptsDestDir = path.join(skillDir, 'scripts');
 for (const script of INSTALL_SCRIPTS) {
