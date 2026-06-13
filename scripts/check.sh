@@ -13,8 +13,8 @@ note_fail() {
   fail=1
 }
 
-# 1. Every hook and the installer must parse as valid JS
-for f in hooks/*.js bin/install.js; do
+# 1. Every hook, the installer, and the repo scripts must parse as valid JS
+for f in hooks/*.js bin/install.js scripts/*.js; do
   if node --check "$f" 2>/dev/null; then
     echo "ok: node --check $f"
   else
@@ -143,6 +143,14 @@ if node tests/check-contracts.test.js; then
   echo "ok: contract checker matrix"
 else
   note_fail "contract checker matrix failed"
+fi
+
+# 13. Codegraph matrix: extraction, ranking, budget enforcement, and the
+#     refuse-or-label staleness contract must hold.
+if node tests/codegraph.test.js; then
+  echo "ok: codegraph matrix"
+else
+  note_fail "codegraph matrix failed"
 fi
 
 if [ "$fail" -ne 0 ]; then

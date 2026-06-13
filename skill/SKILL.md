@@ -121,7 +121,7 @@ Print as plain text (NOT Bash):
 CYCLE {N} - THINK > EXECUTE > VERIFY
 ════════════════════════════════════════════════
 
-Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything. Also re-run ONE cheap READ-ONLY check from the previous cycle (the cheapest side-effect-free passing VERIFY-WITH, or `git status` plus one criterion's read probe): environment rot caught at cycle start costs one command. Caught mid-cycle it costs a wave. Never re-run a VERIFY-WITH that has side effects (publish, deploy, write).
+Track the cycle number. From cycle 4 on, weigh running `/company restart` proactively at a cycle boundary rather than waiting for context pressure to force it mid-task. At the start of EVERY cycle, re-derive state from disk, never from memory: read `.company/criteria.json`, read the latest `.company/cycles/cycle-{N-1}-review.md` if one exists, read `.company/MODEL_POLICY` if it exists (TIERED or FORCE_BEST, see Model assignment), and run `git log --oneline -10` if inside a repo. Restate the plan in one short paragraph before spawning anything. Also re-run ONE cheap READ-ONLY check from the previous cycle (the cheapest side-effect-free passing VERIFY-WITH, or `git status` plus one criterion's read probe): environment rot caught at cycle start costs one command. Caught mid-cycle it costs a wave. Never re-run a VERIFY-WITH that has side effects (publish, deploy, write). When the goal names a repo root and `.company/codegraph/graph.json` exists, also run `node scripts/codegraph.js status --root <root>` (read-only, in the installed skill: the scripts directory next to SKILL.md) and write FRESH or STALE(n) into the briefing.
 
 ### THINK (leads analyze, they never spawn)
 
@@ -134,6 +134,8 @@ As CEO, read the GOAL and COMPANY.md. Decide which departments and employees are
 Spawn ALL relevant department leads in parallel: one `company-lead` Agent call per department, every Agent call in a SINGLE message. Sequential lead spawns are a bug. If an Agent call fails transiently, retry once, then record the lead as unavailable and fold its planning into your own.
 
 Leads ANALYZE and return a task list. They do not execute and they do not spawn. Each lead prompt must be self-contained and re-runnable: the goal, the criteria, the active roster slice for that department, the previous cycle feedback, the installed skills list, and the relevant playbook lines, all PASTED IN, never referenced. Each lead returns one delegation contract per task (see the template above) and writes them to `.company/cycles/cycle-{N}-tasks-{dept}.md`.
+
+**Codebase graph:** when the goal names an explicit repo root AND that root has more than 200 tracked files (`git -C <root> ls-files | wc -l`), paste the output of `node scripts/codegraph.js map --root <root>` (~1.5k tokens, ranked files with their key symbols) into LEAD prompts only, never into worker contracts (contracts carry exact paths). Below the gate, or with no root named: grep-as-needed, no graph. The map REFUSES to emit when stale, so a refusal means rebuild first or plan without it this cycle. If the script fails for any reason, note SKILL-MISSING in the briefing and run a grep-only cycle: the graph never blocks.
 
 If a lead sees a skill gap: it writes `HIRE: {role}, {why}` and you add the role to COMPANY.md and the active roster.
 
@@ -199,6 +201,10 @@ Otherwise = loop, re-spawning only the FAILING tasks with the review feedback in
 ### COMPRESS (between cycles)
 
 Before the next THINK, spawn `company-digest` with the cycle's findings files, the cycle review, and the playbook tail. It writes `.company/cycles/cycle-{N+1}-briefing.md`: importance 4-5 findings kept in full, the rest compressed to one line each, open tasks and feedback carried forward. The next THINK reads that briefing instead of raw transcripts. Never paste raw worker logs into your own context.
+
+If the goal's repo root has a codebase graph and `node scripts/codegraph.js status --root <root>` reports STALE, run `node scripts/codegraph.js update --root <root>` now (incremental, seconds-scale). COMPRESS runs after the merge gate, so the rebuilt graph indexes merged truth, never mid-cycle drafts.
+
+The cycle review records whether lead contracts cited map-surfaced files. After two consecutive goals with roughly zero map-cited files, the map demotes to on-demand: status continues to run but the THINK paste stops until the lead explicitly requests it.
 
 The digest also: (a) appends any FAILED -> USE INSTEAD or INEFFICIENT -> FASTER lesson discovered THIS cycle to `.company/playbook.md` immediately, dedup-gated (see After Done) - a session killed mid-run must not lose its lessons. (b) It records cost: run `npx ccusage@latest session --id "$CLAUDE_CODE_SESSION_ID" --json` (best effort: on any failure write `COST: unavailable` and move on), write `.company/cycles/cycle-{N}-cost.json` with totalCost and totalTokens, and put one line in the next briefing by diffing the previous cycle's file: `COST: cycle +{delta} tokens (~{delta} USD), run {cumulative}`. Tokens are the reliable number. USD can read 0 or low for models the tool cannot price.
 
