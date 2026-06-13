@@ -106,6 +106,8 @@ State lives in `./.company/` (relocate with `COMPANY_DIR`, the hooks honor it):
 
 Leads route tasks to installed skills (/review, /investigate, /qa, /ship, /browse, /secure-phase, /gsd-debug, /gsd-plan-phase) and the installer fetches the packs on first run. When a skill is missing, workers fall back to raw tools and note SKILL-MISSING.
 
+The preamble installs skill packs pinned to reviewed upstream refs (supply-chain control, consistent with the action-SHA pinning in CI). Set `COMPANY_SKILLS=latest` before running to opt into floating `@latest`/HEAD installs instead.
+
 ## Restarting when context fills up
 
 `/company restart` refreshes the on-disk state and emits one self-contained continuation prompt: the goal, a trust-nothing re-derivation first step, exact merged and pending state with SHAs, the waits that need your go, the gates, and the environment. Copy the block, `/clear`, paste, resume with nothing lost.
