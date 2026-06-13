@@ -116,6 +116,58 @@ fi
 
 The dashboard binds 127.0.0.1 only and reads local files - nothing is sent anywhere. Each session gets its own port derived from `$CLAUDE_CODE_SESSION_ID` (7000-7999). Override with `COMPANY_DASHBOARD_PORT`. Running `/company` a second time detects the already-running server and prints the URL without starting a second instance.
 
+Step 1c: Enforce the status-line dashboard link (idempotent). Run this Bash block IMMEDIATELY after Step 1b:
+
+```bash
+# Ensure ~/.claude/settings.json statusLine points to the skill's statusline.js.
+# If it already does, this is a no-op. If it points elsewhere, the prior command
+# is saved to .company/statusline-base.json so statusline.js can chain it.
+_SKILL_SL="$(for _p in \
+  "$(npm root -g 2>/dev/null)/company-skill/scripts/statusline.js" \
+  "$HOME/.claude/skills/company/scripts/statusline.js"; do
+  [ -f "$_p" ] && echo "$_p" && break; done)"
+if [ -z "$_SKILL_SL" ]; then
+  echo "statusline.js not found - skipping status-line enforcement"
+else
+  _WANT_CMD="node \"${_SKILL_SL}\""
+  # Pass the desired command via env so the heredoc needs no trailing argument.
+  COMPANY_SL_WANT="$_WANT_CMD" node <<'JSEOF'
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const dir = process.env.COMPANY_DIR || path.join(os.homedir(), '.company');
+const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+const wantCmd = process.env.COMPANY_SL_WANT || '';
+let settings = {};
+try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch (_) {}
+const cur = (settings.statusLine || {}).command || '';
+if (cur === wantCmd) {
+  process.stdout.write('statusline already enforced\n');
+} else {
+  // Back up the prior command once so statusline.js can chain it.
+  fs.mkdirSync(dir, { recursive: true });
+  const cfgPath = path.join(dir, 'statusline-base.json');
+  let alreadyBacked = false;
+  try {
+    const existing = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    if (existing && existing.command) alreadyBacked = true;
+  } catch (_) {}
+  if (!alreadyBacked && cur) {
+    fs.writeFileSync(cfgPath, JSON.stringify({ command: cur }, null, 2));
+    process.stdout.write('backed up prior statusLine: ' + cur + '\n');
+  }
+  settings.statusLine = { type: 'command', command: wantCmd };
+  const tmp = settingsPath + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2));
+  fs.renameSync(tmp, settingsPath);
+  process.stdout.write('statusLine enforced: ' + wantCmd + '\n');
+}
+JSEOF
+fi
+```
+
+This step is idempotent: re-running it compares the current `statusLine.command` against the target path. If they match, it prints "statusline already enforced" and writes nothing. The prior command is saved only once (on the first enforcement) so re-runs do not overwrite the original. The backup file lives in `.company/statusline-base.json` (controlled by `COMPANY_DIR`), same directory as the rest of the company state. The `statusline.js` script reads that file to chain the prior command through, so the user's original status line is always preserved - only the dashboard link is appended.
+
 Step 2: Print banner as plain text (NOT Bash):
 
 ```
@@ -440,6 +492,8 @@ The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the 
 **Behavior if node or the script is absent:** the Step 1b snippet exits silently - the skill continues without the dashboard.
 
 The dashboard binds 127.0.0.1 only and reads local files. Nothing is sent anywhere.
+
+**Status-line link (always-on):** `scripts/statusline.js` is a zero-dependency script that appends the per-session dashboard URL to the Claude Code status line. Step 1c in the preamble enforces this on every `/company` run by pointing `~/.claude/settings.json` `statusLine` at the script. The enforcement is idempotent: if the setting already points at the script, nothing is written. Any prior `statusLine` command is saved once to `.company/statusline-base.json` so the script can chain it - the user's original status line is preserved, with the dashboard link appended. If `statusline.js` is absent (e.g. npm global install path not found), Step 1c prints a warning and skips - the rest of the skill continues normally.
 
 ## Restart mode (`/company restart`) - context handoff
 
