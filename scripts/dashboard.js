@@ -1614,61 +1614,86 @@ function nodeFill(status, tier) {
   return 'rgba(89,99,110,0.06)';
 }
 
-// Compute x/y positions for each node
+// Compute x/y positions for each node with no overlapping rectangles.
+// Strategy: compute each tier-1 subtree width, pack left-to-right with a gap,
+// center each lead over its children, grow total canvas to fit.
 function layoutTree(org) {
   const nodes = org.nodes || [];
   if (!nodes.length) return { placed: {}, W: 400, H: 100 };
-  const W = 900;
   const nodeW = 140, nodeH = 36;
-  const tierY = { 0: 40, 1: 130, 2: 240 };
+  const colGap = 12;  // horizontal gap between node columns
+  const rowGap = 14;  // vertical gap between rows within a subtree
+  const leadGap = 24; // horizontal gap between adjacent subtrees
+  const tierY = { 0: 40, 1: 140, 2: 256 };
   const placed = {};
 
   const tier0 = nodes.filter(n => n.tier === 0);
   const tier1 = nodes.filter(n => n.tier === 1);
   const tier2 = nodes.filter(n => n.tier === 2);
 
-  if (tier0.length) placed[tier0[0].id] = { x: W / 2 - nodeW / 2, y: tierY[0] };
-
-  const t1Step = tier1.length > 0 ? Math.max(nodeW + 16, W / tier1.length) : W;
-  tier1.forEach((n, i) => {
-    placed[n.id] = { x: Math.max(0, t1Step * i + (t1Step - nodeW) / 2), y: tierY[1] };
-  });
-
-  // Group tier-2 under their lead
+  // Build tier-2 children list per tier-1 lead (only direct edges)
   const byLead = {};
   for (const e of (org.edges || [])) {
     if (!byLead[e.from]) byLead[e.from] = [];
     byLead[e.from].push(e.to);
   }
-  let totalH = 320;
-  for (const [leadId, childIds] of Object.entries(byLead)) {
-    const leadPos = placed[leadId];
-    if (!leadPos) continue;
-    const lead = nodes.find(n => n.id === leadId);
-    if (!lead || lead.tier !== 1) continue;
-    const t2children = childIds.filter(cid => {
+
+  // Subtree width for a tier-1 node = max(nodeW, cols*nodeW + (cols-1)*colGap)
+  // where cols = min(3, childCount)
+  function subtreeWidth(leadId) {
+    const children = (byLead[leadId] || []).filter(cid => {
       const cn = nodes.find(n => n.id === cid);
       return cn && cn.tier === 2;
     });
-    const cols = Math.min(3, t2children.length);
-    const slotW = Math.max(nodeW + 8, t1Step);
-    const groupW = cols * slotW;
-    const startX = leadPos.x + nodeW / 2 - groupW / 2;
-    t2children.forEach((cid, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const y = tierY[2] + row * (nodeH + 14);
-      const x = startX + col * slotW;
+    if (!children.length) return nodeW;
+    const cols = Math.min(3, children.length);
+    return cols * nodeW + (cols - 1) * colGap;
+  }
+
+  // Place tier-1 subtrees left to right, each subtree occupying its full width.
+  let cursor = 0;
+  let totalH = tierY[2] + nodeH + 20;
+
+  tier1.forEach((lead) => {
+    const sw = subtreeWidth(lead.id);
+    // Center the lead node over its subtree band
+    placed[lead.id] = { x: cursor + (sw - nodeW) / 2, y: tierY[1] };
+
+    // Place tier-2 children under this lead, left-aligned within the band
+    const children = (byLead[lead.id] || []).filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    const cols = Math.min(3, children.length);
+    children.forEach((cid, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = cursor + col * (nodeW + colGap);
+      const y = tierY[2] + row * (nodeH + rowGap);
       placed[cid] = { x, y };
       if (y + nodeH + 20 > totalH) totalH = y + nodeH + 20;
     });
-  }
+
+    cursor += sw + leadGap;
+  });
+
+  // Orphan tier-2 nodes (no lead parent placed): append at the right edge
   for (const n of tier2) {
     if (!placed[n.id]) {
-      placed[n.id] = { x: 10, y: tierY[2] };
+      placed[n.id] = { x: cursor, y: tierY[2] };
+      cursor += nodeW + colGap;
     }
   }
-  return { placed, W, H: Math.max(320, totalH) };
+
+  // Total canvas width: max of cursor (after all subtrees) and a minimum
+  const totalW = Math.max(400, cursor - leadGap);
+
+  // Center tier-0 (CEO) over the whole canvas
+  if (tier0.length) {
+    placed[tier0[0].id] = { x: totalW / 2 - nodeW / 2, y: tierY[0] };
+  }
+
+  return { placed, W: totalW, H: Math.max(320, totalH) };
 }
 
 function renderTree(s) {
@@ -2267,7 +2292,8 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-startListening();
+// Guard: only bind the port when run directly, not when require()'d for tests.
+if (require.main === module) startListening();
 
 // Map a raw model id to a human-readable label with context-window note.
 // Mirrors the client-side copy inside PAGE for testability.
@@ -2289,7 +2315,68 @@ function humanizeModel(modelId) {
   return name + ' (' + win + ')';
 }
 
+// Server-side copy of layoutTree (mirrors the client-side copy in PAGE) for test export.
+// Keep in sync with the client-side definition inside the PAGE template.
+function layoutTree(org) {
+  const nodes = org.nodes || [];
+  if (!nodes.length) return { placed: {}, W: 400, H: 100 };
+  const nodeW = 140, nodeH = 36;
+  const colGap = 12;
+  const rowGap = 14;
+  const leadGap = 24;
+  const tierY = { 0: 40, 1: 140, 2: 256 };
+  const placed = {};
+  const tier0 = nodes.filter(n => n.tier === 0);
+  const tier1 = nodes.filter(n => n.tier === 1);
+  const tier2 = nodes.filter(n => n.tier === 2);
+  const byLead = {};
+  for (const e of (org.edges || [])) {
+    if (!byLead[e.from]) byLead[e.from] = [];
+    byLead[e.from].push(e.to);
+  }
+  function subtreeWidth(leadId) {
+    const children = (byLead[leadId] || []).filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    if (!children.length) return nodeW;
+    const cols = Math.min(3, children.length);
+    return cols * nodeW + (cols - 1) * colGap;
+  }
+  let cursor = 0;
+  let totalH = tierY[2] + nodeH + 20;
+  tier1.forEach((lead) => {
+    const sw = subtreeWidth(lead.id);
+    placed[lead.id] = { x: cursor + (sw - nodeW) / 2, y: tierY[1] };
+    const children = (byLead[lead.id] || []).filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    const cols = Math.min(3, children.length);
+    children.forEach((cid, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = cursor + col * (nodeW + colGap);
+      const y = tierY[2] + row * (nodeH + rowGap);
+      placed[cid] = { x, y };
+      if (y + nodeH + 20 > totalH) totalH = y + nodeH + 20;
+    });
+    cursor += sw + leadGap;
+  });
+  for (const n of tier2) {
+    if (!placed[n.id]) {
+      placed[n.id] = { x: cursor, y: tierY[2] };
+      cursor += nodeW + colGap;
+    }
+  }
+  const totalW = Math.max(400, cursor - leadGap);
+  if (tier0.length) {
+    placed[tier0[0].id] = { x: totalW / 2 - nodeW / 2, y: tierY[0] };
+  }
+  return { placed, W: totalW, H: Math.max(320, totalH) };
+}
+
 // Test-only exports; the server path never calls require() on itself.
 if (typeof module !== 'undefined') {
-  module.exports = { usedTokens, humanizeModel };
+  module.exports = { usedTokens, humanizeModel, layoutTree };
 }
