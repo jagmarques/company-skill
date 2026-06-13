@@ -88,6 +88,14 @@ function setupOwner(companyDir, sessionId) {
   fs.writeFileSync(path.join(companyDir, 'OWNER'), (sessionId || 'owner-session-1234') + '\n');
 }
 
+// Write a session-scoped de-loop state file (new JSON format).
+function writeSessionState(companyDir, sid, tokens) {
+  fs.writeFileSync(
+    path.join(companyDir, '.context-guard-state'),
+    JSON.stringify({ sessionId: sid, tokens: tokens })
+  );
+}
+
 // --- 1M-window model cases ---
 
 // Case 1: 1M model at 60% (600000 used) must BLOCK.
@@ -244,18 +252,18 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   check('artifact for different session BLOCKS', d, t, 'block');
 }
 
-// Case 9d: Re-arm via token drop (used < lastFiredTokens) still works without artifact.
-// This path is the unconditional re-arm: token drop implies a genuine restart.
+// Case 9d: Re-arm via token drop within the SAME session (used < lastFiredTokens), no artifact.
+// Token drop implies a genuine context reset: unconditional re-arm, allow without artifact.
+// Uses session-scoped JSON state (new format) so the hook recognizes it as this session's state.
 {
   const d = freshDir();
   setupOwner(d, 'owner-session-1234');
-  const stateFile = path.join(d, '.context-guard-state');
-  // Manually write state=120000.
-  fs.writeFileSync(stateFile, String(120000));
-  // Call at 55% (110000) - above threshold, but tokens < 120000 -> unconditional re-arm, allow.
+  // Pre-populate session-scoped state: guard fired at 120000 tokens for this session.
+  writeSessionState(d, 'owner-session-1234', 120000);
+  // Call at 55% (110000) - above threshold, tokens < 120000 -> re-arm, allow.
   const t_rearm = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 110000 });
   check('re-arm: tokens below fire count resets state (no artifact needed)', d, t_rearm, 'allow');
-  // Subsequent call at high tokens: state=-1, so fires again.
+  // Subsequent call at high tokens: state reset, fires again.
   const t_refire = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
   check('re-arm: after reset, high tokens block again', d, t_refire, 'block');
 }
@@ -271,6 +279,67 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   check('fresh artifact matching session ALLOWS', d, t, 'allow'); // state reset to -1, artifact removed
   // Artifact was consumed, next call re-fires.
   check('after artifact consumed, next call blocks again', d, t, 'block');
+}
+
+// --- Session-scope fix: cross-session and legacy state must not suppress a fire ---
+
+// (a) Cross-session stale state + 51% -> BLOCK (the live bug regression test).
+// Prior session's high-water mark (675148) must NOT release a fresh session at 510000 (51%).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-newsession1');
+  // State from a DIFFERENT session (simulates the stale cross-session file left on disk).
+  writeSessionState(d, 'owner-session-priorsession', 675148);
+  const t = makeTranscript(d, { model: 'claude-opus-4-8', input_tokens: 510000 });
+  check('cross-session stale state + 51% BLOCKS (bug-fix regression)', d, t, 'block', {
+    session_id: 'owner-session-newsession1',
+  });
+}
+
+// (b) Legacy bare-number state file + 51% -> BLOCK (self-heals the exact live stale file).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-legacytest1');
+  // Write legacy bare-number state (old format, no sessionId field).
+  fs.writeFileSync(path.join(d, '.context-guard-state'), '675148');
+  const t = makeTranscript(d, { model: 'claude-opus-4-8', input_tokens: 510000 });
+  check('legacy bare-number state + 51% BLOCKS (not honored)', d, t, 'block', {
+    session_id: 'owner-session-legacytest1',
+  });
+}
+
+// (c) Same session JSON state: first fire blocks + writes {sessionId,tokens}; second call
+// no artifact -> block; fresh artifact -> allow. Proves same-session behavior preserved.
+// (Covered by cases 8/9/9e above, but this isolates the happy path with the JSON format.)
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-sametest1');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('same-session: first fire blocks', d, t, 'block', { session_id: 'owner-session-sametest1' });
+  // State file must be JSON with the correct session id.
+  caseNo += 1;
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(d, '.context-guard-state'), 'utf8'));
+    if (rec.sessionId === 'owner-session-sametest1' && rec.tokens === 120000) {
+      console.log('ok: case ' + caseNo + ' same-session: state written as session-scoped JSON');
+    } else {
+      console.log('FAIL case ' + caseNo + ' (same-session state format): got ' + JSON.stringify(rec));
+      failures += 1;
+    }
+  } catch (e) {
+    console.log('FAIL case ' + caseNo + ' (same-session state parse): ' + e.message);
+    failures += 1;
+  }
+  // Second call no artifact: still blocks (debate not recorded).
+  check('same-session: second call no artifact BLOCKS', d, t, 'block', {
+    session_id: 'owner-session-sametest1',
+  });
+  // Write fresh artifact then allow.
+  const stateFile = path.join(d, '.context-guard-state');
+  writeDebateArtifact(d, 'owner-session-sametest1', stateFile);
+  check('same-session: fresh artifact ALLOWS', d, t, 'allow', {
+    session_id: 'owner-session-sametest1',
+  });
 }
 
 // --- Degrade cases ---
@@ -468,6 +537,72 @@ function writeDebateArtifact(companyDir, sessionId, stateFile) {
   // No criteria.json written - should not cause a crash (context-guard is independent).
   const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
   check('no criteria.json does not crash context-guard', d, t, 'block');
+}
+
+// --- Null sessionId edge (EDGE B/B2 from critic-pr48.md) ---
+
+// Case 23a: stored sessionId null + incoming session null + 51% -> BLOCK (was the hole).
+// Both sides are null; old code: null===null matched, honored high-water, allowed.
+// Fix: require both sides to be non-empty strings -> null state is foreign -> first fire -> BLOCK.
+{
+  const d = freshDir();
+  // No OWNER file: legacy gate-all (gate every session).
+  fs.mkdirSync(d, { recursive: true });
+  // Write state with sessionId:null at a high token count (simulates the edge).
+  fs.writeFileSync(
+    path.join(d, '.context-guard-state'),
+    JSON.stringify({ sessionId: null, tokens: 675148 })
+  );
+  const t = makeTranscript(d, { model: 'claude-opus-4-8', input_tokens: 510000 });
+  // Pass session_id: null via the override (runHook default would send 'owner-session-1234').
+  // We need to pass null explicitly. Use execFileSync directly.
+  caseNo += 1;
+  const inputObj = { transcript_path: t };
+  // session_id intentionally omitted -> hook parses null -> incoming sessionId is null.
+  try {
+    const out = execFileSync(process.execPath, [HOOK], {
+      env: Object.assign({}, process.env, { COMPANY_DIR: d }),
+      encoding: 'utf8',
+      input: JSON.stringify(inputObj),
+    }).trim();
+    const got = decide(out);
+    if (got === 'block') {
+      console.log('ok: case ' + caseNo + ' null stored + null incoming + 51% BLOCKS (edge B closed)');
+    } else {
+      console.log('FAIL case ' + caseNo + ' (null-null edge B): expected block, got ' + got + ' out=' + out);
+      failures += 1;
+    }
+  } catch (e) {
+    console.log('FAIL case ' + caseNo + ' (null-null edge B): crashed: ' + e.message);
+    failures += 1;
+  }
+}
+
+// Case 23b: same-session non-null de-loop still allows (regression guard for the fix).
+// After a fire with a real string sessionId, a same-session call with fresh artifact -> ALLOW.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-nulledge1');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('null-edge: same-session first fire blocks', d, t, 'block', {
+    session_id: 'owner-session-nulledge1',
+  });
+  const stateFile = path.join(d, '.context-guard-state');
+  writeDebateArtifact(d, 'owner-session-nulledge1', stateFile);
+  check('null-edge: same-session fresh artifact still ALLOWS (de-loop intact)', d, t, 'allow', {
+    session_id: 'owner-session-nulledge1',
+  });
+}
+
+// Case 23c: foreign non-null stored id + different non-null incoming -> BLOCK (original fix).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-nulledge2');
+  writeSessionState(d, 'owner-session-other', 675148);
+  const t = makeTranscript(d, { model: 'claude-opus-4-8', input_tokens: 510000 });
+  check('null-edge: foreign non-null stored id BLOCKS (original fix unbroken)', d, t, 'block', {
+    session_id: 'owner-session-nulledge2',
+  });
 }
 
 // Summary
