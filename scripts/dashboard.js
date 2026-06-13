@@ -350,7 +350,42 @@ function parseAgentDetail(file, st) {
   return val;
 }
 
-const ACTIVE_MS = 20000;
+// Max age for a file-mtime-based fallback; content-based detection is primary.
+const ACTIVE_MS = 600000; // 10 min fallback - agents may pause for many minutes waiting on tools
+
+// Read the last ~8 KB of a JSONL to extract the last stop_reason and last timestamp.
+// Returns { stopReason: string|null, lastTs: number|null }
+function agentTailStatus(jsonlPath) {
+  const TAIL = 8192;
+  let text = '';
+  try {
+    const st = fs.statSync(jsonlPath);
+    const size = st.size;
+    const start = Math.max(0, size - TAIL);
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    const fd = fs.openSync(jsonlPath, 'r');
+    try { fs.readSync(fd, buf, 0, len, start); } finally { fs.closeSync(fd); }
+    text = buf.toString('utf8');
+  } catch (_) { return { stopReason: null, lastTs: null }; }
+  let stopReason = null;
+  let lastTs = null;
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch (_) { continue; }
+    if (!lastTs && obj.timestamp) lastTs = new Date(obj.timestamp).getTime() || null;
+    if (!stopReason) {
+      const m = obj.message || {};
+      if (m.stop_reason) { stopReason = m.stop_reason; }
+    }
+    if (stopReason && lastTs) break;
+  }
+  return { stopReason, lastTs };
+}
+
 function collectAgents(projDir, sessionId) {
   const subDir = path.join(projDir, sessionId, 'subagents');
   const out = [];
@@ -373,16 +408,31 @@ function collectAgents(projDir, sessionId) {
     const st = cachedStat(jsonl);
     const mtimeMs = st ? st.mtimeMs : 0;
     const ageMs = now - mtimeMs;
-    const active = st ? ageMs < ACTIVE_MS : false;
+
+    // Content-based running detection: end_turn = done; tool_use = waiting for tool result.
+    // Fall back to mtime when the transcript is unreadable.
+    const { stopReason, lastTs } = st ? agentTailStatus(jsonl) : { stopReason: null, lastTs: null };
+    const contentFinished = stopReason === 'end_turn';
+    // Agent is active if content says it is not finished AND file was touched recently enough.
+    const active = st ? (!contentFinished && ageMs < ACTIVE_MS) : false;
+    // Status: use stop_reason for precision, mtime for recency signal.
+    let status;
+    if (!st) { status = 'unknown'; }
+    else if (contentFinished) { status = 'finished'; }
+    else if (ageMs < 30000) { status = 'running'; }
+    else if (active) { status = 'finishing'; }
+    else { status = 'finished'; }
+
     const agent = {
       id: id.replace(/^agent-/, '').slice(0, 8),
       agentType: meta.agentType || 'agent',
       description: String(meta.description || '').slice(0, 120),
       active,
-      status: !st ? 'unknown' : active ? (ageMs < 10000 ? 'running' : 'finishing') : 'finished',
+      status,
       mtimeMs
     };
-    if (active && st) {
+    if (st) {
+      // Always populate detail fields so the table shows data for all agents.
       const d = parseAgentDetail(jsonl, st);
       agent.model = d.model;
       agent.tokens = d.tokens;
