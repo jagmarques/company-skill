@@ -12,6 +12,11 @@
 #               the model param so the sub-agent inherits the session model).
 #               MODEL: tags are ignored. Use it when quality outweighs cost,
 #               and switch back by editing this file to TIERED.
+#               FORCE_BEST is typically time-boxed: set a revert date in a
+#               comment here so the team knows when to flip back to TIERED.
+#               Switching the session model is enough to change which model
+#               every inheriting role uses (lead, reviewer, critic inherit by
+#               omission, so the session choice propagates automatically).
 #
 # A missing or unparseable file means TIERED. Never write a versioned model
 # name here, only the policy word. The launch-time alternative is the env

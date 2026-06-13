@@ -71,6 +71,9 @@ if grep -hE '^model:' agents/*.md | grep -vE '^model: (sonnet|haiku)$'; then
 else
   echo "ok: agent model fields stay on allowed aliases"
 fi
+# scripts/ and hooks/ are intentionally excluded: they hold the price table and
+# context-window allowlist which legitimately name versioned ids. The alias check
+# at line 69 above is the real agent-frontmatter guard; this grep is belt-and-suspenders.
 if grep -rinE 'claude-[a-z]+-[0-9]' agents/ skill/; then
   note_fail "versioned model name found in agents or skill"
 else
