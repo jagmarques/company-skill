@@ -43,8 +43,8 @@ fix. If a criterion is tagged `kind: design` in criteria.json AND you can name 2
 different angles in one line each, emit N<=3 independent contracts (each from a distinct stated
 angle) plus 1 synthesis contract (a fresh-context judge that picks the winner and grafts
 runner-up ideas). If you cannot name 2+ materially different angles, it is not a design fork:
-use the single contract path. The synthesis contract replaces the merge-gate critic for that
-criterion.
+use the single contract path. The synthesis judge only selects the winning design, the critic
+and reviewer still gate the chosen design before any merge.
 
 Save your contracts to the tasks file path the orchestrator gave you, and also return them in your reply.
 
