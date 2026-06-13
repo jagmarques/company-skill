@@ -5,15 +5,44 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
+      - name: Secret scan
+        run: node scripts/secret-scan.js --worktree .
+      - name: Shellcheck
+        run: shellcheck install.sh scripts/*.sh
       - run: bash scripts/check.sh
+
+  install-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+      - name: Install smoke test
+        run: |
+          export HOME="$(mktemp -d)"
+          node bin/install.js
+          test -f "$HOME/.claude/skills/company/SKILL.md" \
+            || (echo "FAIL: SKILL.md not installed" && exit 1)
+          test -f "$HOME/.claude/skills/company/scripts/secret-scan.js" \
+            || (echo "FAIL: secret-scan.js not installed" && exit 1)
+          echo "ok: install smoke passed"
