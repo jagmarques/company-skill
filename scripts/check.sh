@@ -267,6 +267,15 @@ else
   note_fail "buildOrgTree integration failed (/api/state returned error)"
 fi
 
+# 24. Dashboard D1/D4 non-vacuous tests: usedTokens includes output_tokens,
+#     humanizeModel returns a friendly label, layoutTree places 21 nodes with
+#     zero pairwise overlaps and no negative x.
+if node tests/dashboard-d1-d4.test.js; then
+  echo "ok: dashboard D1/D4 tests (context fill + model label + tree layout)"
+else
+  note_fail "dashboard D1/D4 tests failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1

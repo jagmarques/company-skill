@@ -606,6 +606,15 @@ function parseContextThreshold() {
   return v > 1 ? v / 100 : v;
 }
 
+// Sum all token fields that count against the context window.
+// Matches the Claude Code status line: input + cache_read + cache_creation + output.
+function usedTokens(usage) {
+  return (usage.input_tokens || 0) +
+    (usage.cache_read_input_tokens || 0) +
+    (usage.cache_creation_input_tokens || 0) +
+    (usage.output_tokens || 0);
+}
+
 function computeContextFill(transcriptFile, overrideModel) {
   const threshold = parseContextThreshold();
   if (!transcriptFile) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
@@ -634,9 +643,7 @@ function computeContextFill(transcriptFile, overrideModel) {
     return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: null };
   }
   if (!lastUsage) return { used: 0, window: DEFAULT_WINDOW, fill: 0, threshold, modelId: lastModelId };
-  const used = (lastUsage.input_tokens || 0) +
-    (lastUsage.cache_read_input_tokens || 0) +
-    (lastUsage.cache_creation_input_tokens || 0);
+  const used = usedTokens(lastUsage);
   const contextWindow = detectWindow(lastModelId);
   const fill = used / contextWindow;
   return { used, window: contextWindow, fill, threshold, modelId: lastModelId };
@@ -1290,7 +1297,7 @@ footer { margin-top: 2rem; font-size: 12.5px; color: var(--dim); border-top: 1px
         <button class="tree-btn" id="zoom-in">+</button>
         <button class="tree-btn" id="zoom-out">-</button>
         <button class="tree-btn" id="zoom-reset">reset</button>
-        <button class="tree-btn" id="tree-fullscreen">fullscreen</button>
+        <button class="tree-btn" id="tree-fullscreen" aria-label="Expand" title="Expand"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="1,5 1,1 5,1"/><polyline points="9,1 13,1 13,5"/><polyline points="13,9 13,13 9,13"/><polyline points="5,13 1,13 1,9"/></svg></button>
       </div>
     </div>
     <div class="tree-container" id="tree-container">
@@ -1356,6 +1363,28 @@ const fmtBytes = (n) => {
   return n + ' B';
 };
 const shortModel = (m) => m ? String(m).replace(/^claude-/, '') : '?';
+// Human-readable model label: "Opus 4.8 (1M context)" style.
+// Keep in sync with the server-side humanizeModel() in dashboard.js.
+function humanizeModel(modelId) {
+  if (!modelId) return '?';
+  const m = String(modelId).toLowerCase();
+  let name;
+  if (m.includes('fable') || m.includes('mythos')) name = 'Fable 5';
+  else if (m.includes('opus-4-8')) name = 'Opus 4.8';
+  else if (m.includes('opus-4-5')) name = 'Opus 4.5';
+  else if (m.includes('opus-4')) name = 'Opus 4';
+  else if (m.includes('sonnet-4')) name = 'Sonnet 4';
+  else if (m.includes('sonnet-3-7')) name = 'Sonnet 3.7';
+  else if (m.includes('sonnet-3-5')) name = 'Sonnet 3.5';
+  else if (m.includes('sonnet')) name = 'Sonnet';
+  else if (m.includes('haiku')) name = 'Haiku';
+  else name = modelId.replace(/^claude-/, '');
+  // 1M window: ids containing [1m] or known opus-4 family
+  const is1M = m.includes('[1m]') || m.includes('claude-opus-4') ||
+    m.includes('fable') || m.includes('mythos');
+  const win = is1M ? '1M context' : '200K context';
+  return name + ' (' + win + ')';
+}
 
 function renderHeader(s) {
   const stats = $('stats');
@@ -1375,8 +1404,8 @@ function renderHeader(s) {
     const su = t.session && t.session.usage;
     add('session cost', su ? fmtUsd(su.cost) : '?', su ? fmtTok(su.total) + ' tokens' : 'session ' + (t.session && t.session.id || '?'));
     if (s.savings && s.savings.tieringSaved !== null) {
-      add('saved by model tiering', fmtUsd(s.savings.tieringSaved) + (s.savings.estimated ? ' est.' : ''), 'vs all-' + shortModel(s.savings.topTierModel) + ' (current top tier)');
-      add('saved by prompt caching', fmtUsd(s.savings.cacheSaved) + (s.savings.estimated ? ' est.' : ''), 'cache reads vs full input price');
+      add('saved by model tiering', fmtUsd(s.savings.tieringSaved) + (s.savings.estimated ? ' est.' : ''), 'approx - vs all-' + shortModel(s.savings.topTierModel) + ' (current top tier)');
+      add('saved by prompt caching', fmtUsd(s.savings.cacheSaved) + (s.savings.estimated ? ' est.' : ''), 'approx - cache reads vs full input price');
     }
   }
   const bar = $('splitbar'), legend = $('legend');
@@ -1408,7 +1437,7 @@ function renderBand(s) {
     band.appendChild(d);
   };
   add('policy', p.policy || '?');
-  add('session model', shortModel(p.sessionModel));
+  add('session model', humanizeModel(p.sessionModel));
   add('owners', String(p.ownerCount ?? '?'));
   if (p.halt) band.appendChild(el('span', 'halt', 'HALT REQUESTED'));
   if (s.warning) {
@@ -1489,7 +1518,7 @@ function renderContextFill(s) {
   const row = el('div', 'ctx-row');
   row.appendChild(el('span', 'ctx-pct ' + colorClass, pct + '%'));
   row.appendChild(el('span', 'muted', fmtTok(ctx.used) + ' / ' + fmtTok(ctx.window) + ' tokens'));
-  if (ctx.modelId) row.appendChild(el('span', 'muted', shortModel(ctx.modelId)));
+  if (ctx.modelId) row.appendChild(el('span', 'muted', humanizeModel(ctx.modelId)));
   if (ctx.fill >= ctx.threshold && ctx.enforceRestart !== false) row.appendChild(el('span', 'pill warn', 'restart due'));
   root.appendChild(row);
 }
@@ -1585,61 +1614,86 @@ function nodeFill(status, tier) {
   return 'rgba(89,99,110,0.06)';
 }
 
-// Compute x/y positions for each node
+// Compute x/y positions for each node with no overlapping rectangles.
+// Strategy: compute each tier-1 subtree width, pack left-to-right with a gap,
+// center each lead over its children, grow total canvas to fit.
 function layoutTree(org) {
   const nodes = org.nodes || [];
   if (!nodes.length) return { placed: {}, W: 400, H: 100 };
-  const W = 900;
   const nodeW = 140, nodeH = 36;
-  const tierY = { 0: 40, 1: 130, 2: 240 };
+  const colGap = 12;  // horizontal gap between node columns
+  const rowGap = 14;  // vertical gap between rows within a subtree
+  const leadGap = 24; // horizontal gap between adjacent subtrees
+  const tierY = { 0: 40, 1: 140, 2: 256 };
   const placed = {};
 
   const tier0 = nodes.filter(n => n.tier === 0);
   const tier1 = nodes.filter(n => n.tier === 1);
   const tier2 = nodes.filter(n => n.tier === 2);
 
-  if (tier0.length) placed[tier0[0].id] = { x: W / 2 - nodeW / 2, y: tierY[0] };
-
-  const t1Step = tier1.length > 0 ? Math.max(nodeW + 16, W / tier1.length) : W;
-  tier1.forEach((n, i) => {
-    placed[n.id] = { x: Math.max(0, t1Step * i + (t1Step - nodeW) / 2), y: tierY[1] };
-  });
-
-  // Group tier-2 under their lead
+  // Build tier-2 children list per tier-1 lead (only direct edges)
   const byLead = {};
   for (const e of (org.edges || [])) {
     if (!byLead[e.from]) byLead[e.from] = [];
     byLead[e.from].push(e.to);
   }
-  let totalH = 320;
-  for (const [leadId, childIds] of Object.entries(byLead)) {
-    const leadPos = placed[leadId];
-    if (!leadPos) continue;
-    const lead = nodes.find(n => n.id === leadId);
-    if (!lead || lead.tier !== 1) continue;
-    const t2children = childIds.filter(cid => {
+
+  // Subtree width for a tier-1 node = max(nodeW, cols*nodeW + (cols-1)*colGap)
+  // where cols = min(3, childCount)
+  function subtreeWidth(leadId) {
+    const children = (byLead[leadId] || []).filter(cid => {
       const cn = nodes.find(n => n.id === cid);
       return cn && cn.tier === 2;
     });
-    const cols = Math.min(3, t2children.length);
-    const slotW = Math.max(nodeW + 8, t1Step);
-    const groupW = cols * slotW;
-    const startX = leadPos.x + nodeW / 2 - groupW / 2;
-    t2children.forEach((cid, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const y = tierY[2] + row * (nodeH + 14);
-      const x = startX + col * slotW;
+    if (!children.length) return nodeW;
+    const cols = Math.min(3, children.length);
+    return cols * nodeW + (cols - 1) * colGap;
+  }
+
+  // Place tier-1 subtrees left to right, each subtree occupying its full width.
+  let cursor = 0;
+  let totalH = tierY[2] + nodeH + 20;
+
+  tier1.forEach((lead) => {
+    const sw = subtreeWidth(lead.id);
+    // Center the lead node over its subtree band
+    placed[lead.id] = { x: cursor + (sw - nodeW) / 2, y: tierY[1] };
+
+    // Place tier-2 children under this lead, left-aligned within the band
+    const children = (byLead[lead.id] || []).filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    const cols = Math.min(3, children.length);
+    children.forEach((cid, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = cursor + col * (nodeW + colGap);
+      const y = tierY[2] + row * (nodeH + rowGap);
       placed[cid] = { x, y };
       if (y + nodeH + 20 > totalH) totalH = y + nodeH + 20;
     });
-  }
+
+    cursor += sw + leadGap;
+  });
+
+  // Orphan tier-2 nodes (no lead parent placed): append at the right edge
   for (const n of tier2) {
     if (!placed[n.id]) {
-      placed[n.id] = { x: 10, y: tierY[2] };
+      placed[n.id] = { x: cursor, y: tierY[2] };
+      cursor += nodeW + colGap;
     }
   }
-  return { placed, W, H: Math.max(320, totalH) };
+
+  // Total canvas width: max of cursor (after all subtrees) and a minimum
+  const totalW = Math.max(400, cursor - leadGap);
+
+  // Center tier-0 (CEO) over the whole canvas
+  if (tier0.length) {
+    placed[tier0[0].id] = { x: totalW / 2 - nodeW / 2, y: tierY[0] };
+  }
+
+  return { placed, W: totalW, H: Math.max(320, totalH) };
 }
 
 function renderTree(s) {
@@ -1892,6 +1946,17 @@ function setupTreeInteractions() {
     if (!document.fullscreenElement) card.requestFullscreen().catch(() => {});
     else document.exitFullscreen().catch(() => {});
   });
+  // SVG icons for expand (two arrows out) and contract (two arrows in)
+  const ICON_EXPAND = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="1,5 1,1 5,1"/><polyline points="9,1 13,1 13,5"/><polyline points="13,9 13,13 9,13"/><polyline points="5,13 1,13 1,9"/></svg>';
+  const ICON_CONTRACT = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="5,1 5,5 1,5"/><polyline points="13,5 9,5 9,1"/><polyline points="9,13 9,9 13,9"/><polyline points="1,9 5,9 5,13"/></svg>';
+  document.addEventListener('fullscreenchange', () => {
+    const btn = $('tree-fullscreen');
+    if (!btn) return;
+    const active = !!document.fullscreenElement;
+    btn.innerHTML = active ? ICON_CONTRACT : ICON_EXPAND;
+    btn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Expand');
+    btn.setAttribute('title', active ? 'Exit fullscreen' : 'Expand');
+  });
 }
 
 // Per-feed-item expand: sessionStorage set of expanded item keys, keyed per session
@@ -2019,7 +2084,7 @@ function renderCriteria(s) {
     dot.style.flexShrink = '0';
     header.appendChild(dot);
     const titleSpan = el('span');
-    titleSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    titleSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
     titleSpan.textContent = itemId + '. ' + item.description;
     header.appendChild(titleSpan);
     const caret = el('span', 'muted');
@@ -2071,11 +2136,10 @@ function renderCycles(s) {
   thead.appendChild(hr);
   table.appendChild(thead);
   const tbody = el('tbody');
+  // Show counts and dates as headlines; drop bare byte sizes as primary values.
   const rows = [
-    ['cycle dirs', String(c.cycleDirs ?? '?')],
-    ['briefings', (c.briefingCount ?? '?') + ' (' + fmtBytes(c.briefingBytes) + ')'],
-    ['playbook', fmtBytes(c.playbookBytes) + (c.playbookGrowthBytes ? ' (+' + fmtBytes(c.playbookGrowthBytes) + ')' : '')],
-    ['active tasks', fmtBytes(c.activeTasksBytes)],
+    ['cycles run', String(c.cycleDirs ?? '?')],
+    ['briefings logged', String(c.briefingCount ?? '?')],
     ['last compaction', c.lastCompaction ? new Date(c.lastCompaction).toLocaleString() : 'none seen'],
     ['compactions observed', String(c.compactionsObserved ?? 0)],
   ];
@@ -2239,4 +2303,91 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-startListening();
+// Guard: only bind the port when run directly, not when require()'d for tests.
+if (require.main === module) startListening();
+
+// Map a raw model id to a human-readable label with context-window note.
+// Mirrors the client-side copy inside PAGE for testability.
+function humanizeModel(modelId) {
+  if (!modelId) return '?';
+  const m = String(modelId).toLowerCase();
+  let name;
+  if (m.includes('fable') || m.includes('mythos')) name = 'Fable 5';
+  else if (m.includes('opus-4-8')) name = 'Opus 4.8';
+  else if (m.includes('opus-4-5')) name = 'Opus 4.5';
+  else if (m.includes('opus-4')) name = 'Opus 4';
+  else if (m.includes('sonnet-4')) name = 'Sonnet 4';
+  else if (m.includes('sonnet-3-7')) name = 'Sonnet 3.7';
+  else if (m.includes('sonnet-3-5')) name = 'Sonnet 3.5';
+  else if (m.includes('sonnet')) name = 'Sonnet';
+  else if (m.includes('haiku')) name = 'Haiku';
+  else name = modelId.replace(/^claude-/, '');
+  const win = is1MModel(modelId) ? '1M context' : '200K context';
+  return name + ' (' + win + ')';
+}
+
+// Server-side copy of layoutTree (mirrors the client-side copy in PAGE) for test export.
+// Keep in sync with the client-side definition inside the PAGE template.
+function layoutTree(org) {
+  const nodes = org.nodes || [];
+  if (!nodes.length) return { placed: {}, W: 400, H: 100 };
+  const nodeW = 140, nodeH = 36;
+  const colGap = 12;
+  const rowGap = 14;
+  const leadGap = 24;
+  const tierY = { 0: 40, 1: 140, 2: 256 };
+  const placed = {};
+  const tier0 = nodes.filter(n => n.tier === 0);
+  const tier1 = nodes.filter(n => n.tier === 1);
+  const tier2 = nodes.filter(n => n.tier === 2);
+  const byLead = {};
+  for (const e of (org.edges || [])) {
+    if (!byLead[e.from]) byLead[e.from] = [];
+    byLead[e.from].push(e.to);
+  }
+  function subtreeWidth(leadId) {
+    const children = (byLead[leadId] || []).filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    if (!children.length) return nodeW;
+    const cols = Math.min(3, children.length);
+    return cols * nodeW + (cols - 1) * colGap;
+  }
+  let cursor = 0;
+  let totalH = tierY[2] + nodeH + 20;
+  tier1.forEach((lead) => {
+    const sw = subtreeWidth(lead.id);
+    placed[lead.id] = { x: cursor + (sw - nodeW) / 2, y: tierY[1] };
+    const children = (byLead[lead.id] || []).filter(cid => {
+      const cn = nodes.find(n => n.id === cid);
+      return cn && cn.tier === 2;
+    });
+    const cols = Math.min(3, children.length);
+    children.forEach((cid, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = cursor + col * (nodeW + colGap);
+      const y = tierY[2] + row * (nodeH + rowGap);
+      placed[cid] = { x, y };
+      if (y + nodeH + 20 > totalH) totalH = y + nodeH + 20;
+    });
+    cursor += sw + leadGap;
+  });
+  for (const n of tier2) {
+    if (!placed[n.id]) {
+      placed[n.id] = { x: cursor, y: tierY[2] };
+      cursor += nodeW + colGap;
+    }
+  }
+  const totalW = Math.max(400, cursor - leadGap);
+  if (tier0.length) {
+    placed[tier0[0].id] = { x: totalW / 2 - nodeW / 2, y: tierY[0] };
+  }
+  return { placed, W: totalW, H: Math.max(320, totalH) };
+}
+
+// Test-only exports; the server path never calls require() on itself.
+if (typeof module !== 'undefined') {
+  module.exports = { usedTokens, humanizeModel, layoutTree };
+}
