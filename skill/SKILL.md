@@ -50,7 +50,14 @@ If an install fails, continue anyway. Any task whose assigned skill turns out to
 Step 1b: Start the observability dashboard (idempotent). Run this Bash block IMMEDIATELY after Step 1:
 
 ```bash
-_DASH_PORT="${COMPANY_DASHBOARD_PORT:-7777}"
+# MUST-FIX 1: CLAUDE_CODE_SESSION_ID is the primary session id (CLAUDE_SESSION_ID is empty)
+_SID="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${COMPANY_SESSION_ID:-}}}"
+# Derive port from session id (matches portFor() in dashboard.js); override with COMPANY_DASHBOARD_PORT
+if [ -n "$COMPANY_DASHBOARD_PORT" ]; then
+  _DASH_PORT="$COMPANY_DASHBOARD_PORT"
+else
+  _DASH_PORT="$(node -e 'const s=process.argv[1]||"";let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}h>>>=0;let p=7000+(h%1000);process.stdout.write(String(p===7777?7700:p));' "$_SID")"
+fi
 _DASH_SCRIPT="$(dirname "$(npm root -g 2>/dev/null || echo '')")/company-skill/scripts/dashboard.js"
 # Try local install paths if global is absent
 for _p in \
@@ -66,7 +73,7 @@ if ! command -v node > /dev/null 2>&1 || [ ! -f "$_DASH_SCRIPT" ]; then
 elif curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
   echo "Dashboard already running: http://127.0.0.1:${_DASH_PORT}"
 else
-  node "$_DASH_SCRIPT" --port "$_DASH_PORT" > /tmp/company-dashboard-${_DASH_PORT}.log 2>&1 &
+  node "$_DASH_SCRIPT" --port "$_DASH_PORT" --session-id "$_SID" > /tmp/company-dashboard-${_DASH_PORT}.log 2>&1 &
   sleep 1
   if curl -sf "http://127.0.0.1:${_DASH_PORT}/api/state" > /dev/null 2>&1; then
     echo "Dashboard started: http://127.0.0.1:${_DASH_PORT}"
@@ -76,7 +83,7 @@ else
 fi
 ```
 
-The dashboard binds 127.0.0.1 only and reads local files - nothing is sent anywhere. Override the port with `COMPANY_DASHBOARD_PORT`. Running `/company` a second time detects the already-running server and prints the URL without starting a second instance.
+The dashboard binds 127.0.0.1 only and reads local files - nothing is sent anywhere. Each session gets its own port derived from `$CLAUDE_CODE_SESSION_ID` (7000-7999). Override with `COMPANY_DASHBOARD_PORT`. Running `/company` a second time detects the already-running server and prints the URL without starting a second instance.
 
 Step 2: Print banner as plain text (NOT Bash):
 
