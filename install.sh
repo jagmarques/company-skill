@@ -33,10 +33,11 @@ for agent in lead worker reviewer critic digest; do
   fetch "$REPO/agents/company-$agent.md" "$HOME/.claude/agents/company-$agent.md" || echo "Warning: failed to download agent company-$agent"
 done
 
-# Scripts (runtime dependencies referenced from SKILL.md).
-# check.sh and test files stay in the repo only and are not installed.
+# Scripts (runtime dependencies referenced from SKILL.md):
+# codegraph.js, check-contracts.js, check-findings.js, restart-debate.js,
+# dashboard.js, secret-scan.js. check.sh and test files stay in the repo only.
 mkdir -p "$HOME/.claude/skills/company/scripts"
-for script in codegraph.js check-contracts.js check-findings.js restart-debate.js; do
+for script in codegraph.js check-contracts.js check-findings.js restart-debate.js dashboard.js secret-scan.js; do
   fetch "$REPO/scripts/$script" "$HOME/.claude/skills/company/scripts/$script" || echo "Warning: failed to download script $script"
 done
 

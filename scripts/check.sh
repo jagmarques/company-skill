@@ -174,6 +174,14 @@ else
   note_fail "restart-debate recorder matrix failed"
 fi
 
+# 16. Packaging smoke test: every script referenced in SKILL.md/agents must be
+#     in both installer lists. Catches a new script silently left out of install.
+if node tests/packaging.test.js; then
+  echo "ok: packaging installer coverage"
+else
+  note_fail "packaging installer coverage failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
