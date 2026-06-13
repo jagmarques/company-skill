@@ -9,7 +9,7 @@
  * prompt bodies).
  *
  * Run: node scripts/dashboard.js [--port N] [--company-dir PATH]
- * Binds 127.0.0.1 only, hardcoded. Default port 7177.
+ * Binds 127.0.0.1 only, hardcoded. Default port 7777.
  * Local only. Reads files on this machine, sends nothing anywhere.
  */
 'use strict';
@@ -26,7 +26,7 @@ function argValue(flag) {
   const i = argv.indexOf(flag);
   return i >= 0 && argv[i + 1] ? argv[i + 1] : null;
 }
-const PORT = Number(argValue('--port') || process.env.PORT || 7177);
+const PORT = Number(argValue('--port') || process.env.PORT || 7777);
 const HOST = '127.0.0.1'; // hardcoded loopback, never 0.0.0.0
 
 function resolveCompanyDir() {

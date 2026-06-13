@@ -123,8 +123,10 @@ fi
 # 10. No leaked operator brand names anywhere in the tree. This is a generic
 #     public tool and must never name the company of whoever maintains it.
 #     check.sh is excluded only because the banned word list lives here.
-if grep -rin 'asqav' --exclude-dir=.git --exclude-dir=node_modules \
-    --exclude=check.sh .; then
+#     Uses git grep so that the .git pointer file in a linked worktree (which
+#     contains an absolute path that may include the brand string) is never
+#     scanned. Only git-tracked file content is checked.
+if git grep -rin 'asqav' -- ':!scripts/check.sh'; then
   note_fail "leaked brand name found"
 else
   echo "ok: no leaked brand names"
