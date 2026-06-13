@@ -12,6 +12,13 @@
 // The external lock is authoritative for criteria.lock, the external owners log is
 // append-only and makes OWNER rewrite-eviction impossible. Degrades gracefully
 // when ~/.claude is unwritable (falls back to .company-only behavior, no crash).
+//
+// SECURITY INVARIANT: a locked id removed from criteria.json ALWAYS blocks, with
+// no heuristic escape. There is NO in-guard self-heal. Any file-state heuristic
+// (mtime, content hash, goal text) is bypassable by an in-run actor that can write
+// .company/ files. The correct way to clear a stale anchor for a new goal is the
+// deliberate reset in scripts/reset-company-guard.js (run by a human or the
+// orchestrator at parse time, never triggered automatically by stop-guard).
 
 const fs = require('fs');
 const path = require('path');
@@ -22,49 +29,6 @@ const criteriaPath = path.join(companyDir, 'criteria.json');
 const goalPath = path.join(companyDir, 'GOAL.md');
 const cancelPath = path.join(companyDir, 'CANCEL');
 const ownerPath = path.join(companyDir, 'OWNER');
-
-// External anchor: keyed on sha256(realpath(companyDir)).slice(0,16) so
-// rewriting GOAL.md or criteria.json cannot rotate the key and orphan the anchor.
-//
-// H2 self-heal: when GOAL.md CONTENT hash differs from the stored goal-hash, the user
-// launched a new goal after the lock was written. Reset the anchor so the new id-set
-// snapshots cleanly. A bare `touch GOAL.md` does NOT change content, so its hash is
-// unchanged and the anchor holds - the touch-bypass (H2-4) is closed.
-//
-// Backward compat: if no stored goal-hash exists (old anchor), adopt the current hash
-// going forward WITHOUT healing the id-set. This prevents the upgrade path from becoming
-// a bypass (an absent hash never grants a free reset).
-function goalContentHash() {
-  try {
-    const content = fs.readFileSync(goalPath, 'utf8');
-    return crypto.createHash('sha256').update(content).digest('hex');
-  } catch (e) {
-    // GOAL.md unreadable - return empty string, caller treats as no-change
-    return '';
-  }
-}
-
-// Returns true only when GOAL content has genuinely changed since the lock was written.
-// Side-effect: if no stored hash exists, writes the current hash (upgrade path, no heal).
-// extHashPath is the path to the stored goal-hash file in the anchor dir.
-function goalContentChanged(extHashPath, anchorDirArg) {
-  if (!extHashPath) return false;
-  const current = goalContentHash();
-  if (current === '') return false;
-  let stored = null;
-  try {
-    stored = fs.readFileSync(extHashPath, 'utf8').trim();
-  } catch (e) {}
-  if (stored === null) {
-    // No stored hash: adopt current without healing (backward compat, fail-safe).
-    try {
-      const ad = ensureAnchorDir(anchorDirArg);
-      if (ad) fs.writeFileSync(extHashPath, current + '\n');
-    } catch (e) {}
-    return false;
-  }
-  return current !== stored;
-}
 
 function getAnchorDir() {
   try {
@@ -207,6 +171,13 @@ if (fs.existsSync(criteriaPath)) {
   // If the external lock exists, it is the source of truth (rm .company/criteria.lock
   // becomes a no-op, .company lock is healed from the external copy). If the external
   // lock is missing this is a genuine first sight.
+  //
+  // NO self-heal: a locked id removed from criteria.json BLOCKS unconditionally.
+  // There is no file-state heuristic (mtime, content hash, GOAL text) that can
+  // distinguish a legitimate new-goal run from an in-run tamper, because the same
+  // in-run actor that writes criteria.json can also write GOAL.md (sibling files).
+  // Use scripts/reset-company-guard.js to deliberately clear a stale anchor when
+  // starting a new goal. That is an explicit, auditable action, not a silent heal.
   const lockPath = path.join(companyDir, 'criteria.lock');
   const extLockPath = anchorDir ? path.join(anchorDir, 'lock') : null;
   const currentIds = all
@@ -223,20 +194,6 @@ if (fs.existsSync(criteriaPath)) {
     } catch (e) {}
   }
 
-  // H2 self-heal: GOAL content hash differs from stored hash means a genuine new goal.
-  // Re-snapshot so a new run with reused criterion ids is not blocked by prior anchor.
-  // A bare `touch GOAL.md` does NOT change content, so its hash is unchanged and the
-  // anchor holds. Only a real content change (new /company goal) triggers the reset.
-  const extHashPath = anchorDir ? path.join(anchorDir, 'goal-hash') : null;
-  if (lockedIds !== null && goalContentChanged(extHashPath, anchorDir)) {
-    try { fs.unlinkSync(extLockPath); } catch (e) {}
-    try { fs.unlinkSync(lockPath); } catch (e) {}
-    if (extHashPath) {
-      try { fs.writeFileSync(extHashPath, goalContentHash() + '\n'); } catch (e) {}
-    }
-    lockedIds = null;
-  }
-
   if (lockedIds !== null) {
     // External lock exists - heal the .company copy in case it was deleted.
     try { fs.writeFileSync(lockPath, lockedIds.join('\n') + '\n'); } catch (e) {}
@@ -250,14 +207,10 @@ if (fs.existsSync(criteriaPath)) {
   }
 
   if (lockedIds === null) {
-    // Genuine first sight: snapshot lock and goal-hash to both external and .company.
+    // Genuine first sight: snapshot lock to both external and .company.
     const ad = ensureAnchorDir(anchorDir);
     if (ad && extLockPath) {
       try { fs.writeFileSync(extLockPath, currentIds.join('\n') + '\n'); } catch (e) {}
-      if (extHashPath) {
-        const h = goalContentHash();
-        if (h) { try { fs.writeFileSync(extHashPath, h + '\n'); } catch (e) {} }
-      }
     }
     try { fs.writeFileSync(lockPath, currentIds.join('\n') + '\n'); } catch (e) {}
   } else {
