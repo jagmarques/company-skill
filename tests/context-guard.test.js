@@ -150,15 +150,35 @@ function setupOwner(companyDir, sessionId) {
   check('200K model 49% allows', d, t, 'allow');
 }
 
-// --- De-loop: RESTART_REQUESTED / state file ---
+// --- De-loop: debate artifact gating ---
 
-// Case 8: After a block fires (state file written), same token count must ALLOW (de-loop).
+// Helper: write a fresh RESTART_DEBATE_CONFIRMED artifact AFTER the state file.
+// Returns the artifact path.
+function writeDebateArtifact(companyDir, sessionId, stateFile) {
+  // Ensure mtime ordering: write state file first (caller handles that), then artifact.
+  // We add a small delay by re-stamping the artifact a moment after the state file.
+  const artifactPath = path.join(companyDir, 'RESTART_DEBATE_CONFIRMED');
+  const rec = {
+    sourceVerifier: 'CONFIRMED',
+    devilsAdvocate: 'OK',
+    completenessCritic: 'OK',
+    sessionId: sessionId || null,
+    recordedAtTokensMarker: Date.now(),
+  };
+  // Write state file first so we can force artifact mtime to be newer.
+  // The caller already wrote the state file. We just write the artifact now.
+  fs.writeFileSync(artifactPath, JSON.stringify(rec));
+  return artifactPath;
+}
+
+// Case 8: After a block fires (state file written), same token count BLOCKS without artifact.
+// With a fresh artifact -> ALLOW. With same tokens again after allow -> re-arm is set, new fire.
 {
   const d = freshDir();
   setupOwner(d, 'owner-session-1234');
   const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
   // First call: must BLOCK and write state file.
-  const firstOut = check('200K 60% first block writes state', d, t, 'block');
+  check('200K 60% first block writes state', d, t, 'block');
   // State file must have been written.
   caseNo += 1;
   const stateFile = path.join(d, '.context-guard-state');
@@ -168,61 +188,89 @@ function setupOwner(companyDir, sessionId) {
   } else {
     console.log('ok: case ' + caseNo + ' state file created after block');
   }
-  // Second call with SAME token count: must ALLOW (de-loop).
-  check('200K 60% second call same tokens allows (de-loop)', d, t, 'allow');
-  // Third call with SAME token count: state is still 120000 (not reset - same tokens don't re-arm).
-  // De-loop holds: repeated same-token stops all allow (guard stays out of the way).
-  check('200K 60% third call same tokens still allows (de-loop persists)', d, t, 'allow');
+  // Second call with SAME token count and NO artifact: must BLOCK (debate gate).
+  check('200K 60% second call same tokens BLOCKS without artifact', d, t, 'block');
+  // Write a fresh artifact (after the state file mtime) then call again: must ALLOW.
+  writeDebateArtifact(d, 'owner-session-1234', stateFile);
+  check('200K 60% after fresh artifact ALLOWS', d, t, 'allow');
 }
 
-// Case 9: After de-loop allow, a HIGHER token count still ALLOWS (de-loop releases despite growth).
+// Case 9: After a fire, higher tokens also BLOCKS without artifact.
+// With a fresh artifact: ALLOWS regardless of token growth (deadlock-safety proof).
 {
   const d = freshDir();
   setupOwner(d, 'owner-session-1234');
   const t1 = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
   check('setup: 60% blocks', d, t1, 'block'); // writes state=120000
-  check('de-loop: same tokens allows', d, t1, 'allow'); // state stays 120000 (not reset, 120000 not < 120000)
-  // Tokens grew (restart in progress, model doing work): must still ALLOW - de-loop holds.
+  // Higher tokens, no artifact: must BLOCK (not allow like the old de-loop).
   const t2 = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 150000 });
-  check('after de-loop: higher tokens still allows (de-loop releases despite token growth)', d, t2, 'allow');
+  check('after fire: higher tokens BLOCKS without artifact', d, t2, 'block');
+  // Now write fresh artifact: must ALLOW even though tokens grew (no deadlock).
+  const stateFile = path.join(d, '.context-guard-state');
+  writeDebateArtifact(d, 'owner-session-1234', stateFile);
+  check('after fire: higher tokens ALLOWS with fresh artifact (deadlock-safety)', d, t2, 'allow');
 }
 
-// Case 9b: De-loop releases after one restart despite token growth (regression test for the bug).
+// Case 9b: Stale artifact (mtime before state file) -> BLOCK.
 {
   const d = freshDir();
   setupOwner(d, 'owner-session-1234');
-  // Simulate: guard fired at 60% (120000), state file written.
+  const stateFile = path.join(d, '.context-guard-state');
+  // Write the artifact FIRST (stale).
+  const artifactPath = path.join(d, 'RESTART_DEBATE_CONFIRMED');
+  fs.writeFileSync(artifactPath, JSON.stringify({
+    sourceVerifier: 'CONFIRMED', devilsAdvocate: 'OK', completenessCritic: 'OK',
+    sessionId: 'owner-session-1234', recordedAtTokensMarker: Date.now(),
+  }));
+  // Then write state file AFTER (making artifact mtime older than state mtime).
+  fs.writeFileSync(stateFile, String(120000));
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
+  check('stale artifact (mtime before state file) BLOCKS', d, t, 'block');
+}
+
+// Case 9c: Artifact for a different session -> BLOCK.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-1234');
   const stateFile = path.join(d, '.context-guard-state');
   fs.writeFileSync(stateFile, String(120000));
-  // Next call at ~70% (140000): with old bug this re-blocked; with fix it must allow.
+  // Artifact with a different session id (written after state file).
+  const artifactPath = path.join(d, 'RESTART_DEBATE_CONFIRMED');
+  fs.writeFileSync(artifactPath, JSON.stringify({
+    sourceVerifier: 'CONFIRMED', devilsAdvocate: 'OK', completenessCritic: 'OK',
+    sessionId: 'different-session-9999', recordedAtTokensMarker: Date.now(),
+  }));
   const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
-  check('de-loop releases after one restart despite token growth', d, t, 'allow');
+  check('artifact for different session BLOCKS', d, t, 'block');
 }
 
-// Case 9c: Re-arm: after a fire at high tokens, a drop below re-arms (resets to -1), then a new fill blocks again.
+// Case 9d: Re-arm via token drop (used < lastFiredTokens) still works without artifact.
+// This path is the unconditional re-arm: token drop implies a genuine restart.
 {
   const d = freshDir();
   setupOwner(d, 'owner-session-1234');
-  const t_high = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
-  check('re-arm setup: 60% blocks', d, t_high, 'block'); // writes state=120000
-  // Simulate context drop after restart (new session re-read at low fill) - 30% (60000).
-  const t_low = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 60000 });
-  // Low fill = below threshold, exits before de-loop check. State file unchanged.
-  check('re-arm: 30% allows (below threshold)', d, t_low, 'allow');
-  // Now simulate another fill cycle: guard fires again - state was 120000, used=60000 < 120000, resets to -1.
-  // We must manually exercise the re-arm path by calling at high tokens while state=120000.
-  // Call at 70% (140000): lastFiredTokens=120000 >= 0, used=140000 not < 120000, so allow (de-loop still holds).
-  const t_high2 = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
-  check('re-arm: higher tokens while state=120000 still allows', d, t_high2, 'allow');
-  // Now call with tokens BELOW the recorded fire count to trigger re-arm (state -> -1).
-  // Use a call that reaches the de-loop check: must be above threshold (60%) but below 120000.
-  // 110000 / 200000 = 55% - below 50% threshold? No - 110000/200000=55% which is above 50% threshold.
-  // Used=110000 < lastFiredTokens=120000 -> resets state to -1 -> allow.
+  const stateFile = path.join(d, '.context-guard-state');
+  // Manually write state=120000.
+  fs.writeFileSync(stateFile, String(120000));
+  // Call at 55% (110000) - above threshold, but tokens < 120000 -> unconditional re-arm, allow.
   const t_rearm = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 110000 });
-  check('re-arm: tokens below fire count resets state to -1', d, t_rearm, 'allow');
-  // Subsequent call at high tokens: state=-1, lastFiredTokens=-1, so >= 0 is false -> blocks again.
+  check('re-arm: tokens below fire count resets state (no artifact needed)', d, t_rearm, 'allow');
+  // Subsequent call at high tokens: state=-1, so fires again.
   const t_refire = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
   check('re-arm: after reset, high tokens block again', d, t_refire, 'block');
+}
+
+// Case 9e: Fresh artifact + matching session -> ALLOW + state reset -> next fire re-arms correctly.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-1234');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('setup: block fires', d, t, 'block'); // state=120000
+  const stateFile = path.join(d, '.context-guard-state');
+  writeDebateArtifact(d, 'owner-session-1234', stateFile);
+  check('fresh artifact matching session ALLOWS', d, t, 'allow'); // state reset to -1, artifact removed
+  // Artifact was consumed, next call re-fires.
+  check('after artifact consumed, next call blocks again', d, t, 'block');
 }
 
 // --- Degrade cases ---
@@ -335,6 +383,17 @@ function setupOwner(companyDir, sessionId) {
   fs.writeFileSync(path.join(d, 'CANCEL'), '');
   const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
   check('CANCEL present allows even at 60%', d, t, 'allow');
+}
+
+// Case 16b: CANCEL present AFTER a fire (no artifact) must still ALLOW (escape preserved).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-1234');
+  const stateFile = path.join(d, '.context-guard-state');
+  fs.writeFileSync(stateFile, String(120000)); // simulate prior fire
+  fs.writeFileSync(path.join(d, 'CANCEL'), '');
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
+  check('CANCEL present after fire (no artifact) still ALLOWS (escape preserved)', d, t, 'allow');
 }
 
 // --- Configurable threshold ---

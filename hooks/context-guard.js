@@ -149,10 +149,53 @@ try {
 } catch (e) {}
 
 if (lastFiredTokens >= 0) {
-  // Fired once already: allow the stop. Re-arm only when context actually drops.
+  // Fired once already. Re-arm unconditionally when tokens dropped below the fire
+  // count (a genuine context reset happened). Otherwise gate on the debate artifact.
   if (used < lastFiredTokens) {
     try { fs.writeFileSync(stateFile, String(-1)); } catch (e) {}
+    process.exit(0);
   }
+
+  // Tokens did not drop. Allow the stop only when a fresh debate artifact exists.
+  // Fresh = file exists AND its mtime is newer than the state file's mtime.
+  // The artifact session must match when both are present.
+  const artifactPath = path.join(companyDir, 'RESTART_DEBATE_CONFIRMED');
+  let artifactFresh = false;
+  try {
+    const artifactStat = fs.statSync(artifactPath);
+    const stateStat = fs.statSync(stateFile);
+    if (artifactStat.mtimeMs > stateStat.mtimeMs) {
+      // Check session match: if both have a session id, they must agree.
+      let sessionOk = true;
+      if (sessionId) {
+        try {
+          const rec = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+          if (rec.sessionId && rec.sessionId !== sessionId) sessionOk = false;
+        } catch (e) {}
+      }
+      artifactFresh = sessionOk;
+    }
+  } catch (e) {}
+
+  if (artifactFresh) {
+    // Debate recorded. Allow the stop and re-arm for the next cycle.
+    try { fs.writeFileSync(stateFile, String(-1)); } catch (e) {}
+    // Best-effort: remove the consumed artifact so a stale one cannot release
+    // a future fire. Failure is ignored (artifact absence is also safe).
+    try { fs.unlinkSync(artifactPath); } catch (e) {}
+    process.exit(0);
+  }
+
+  // No fresh artifact. Keep blocking until the debate is recorded.
+  const pctNow = Math.round((used / detectWindow(lastModelId)) * 100);
+  const sessionTagNow = sessionId ? ' [session ' + sessionId + ']' : '';
+  console.log(JSON.stringify({
+    decision: 'block',
+    reason: '[COMPANY] Restart debate not recorded. ' +
+      'Run: cat <3-role-verdicts.json> | node scripts/restart-debate.js  ' +
+      'then stop. The enforced restart completes only after the debate is recorded.' +
+      sessionTagNow,
+  }));
   process.exit(0);
 }
 
