@@ -170,21 +170,59 @@ function setupOwner(companyDir, sessionId) {
   }
   // Second call with SAME token count: must ALLOW (de-loop).
   check('200K 60% second call same tokens allows (de-loop)', d, t, 'allow');
-  // Third call with SAME token count: state was reset to -1, so 120000 > -1 re-fires.
-  // The de-loop gives exactly ONE pass-through - the next stop re-evaluates.
-  check('200K 60% third call same tokens re-blocks (state reset)', d, t, 'block');
+  // Third call with SAME token count: state is still 120000 (not reset - same tokens don't re-arm).
+  // De-loop holds: repeated same-token stops all allow (guard stays out of the way).
+  check('200K 60% third call same tokens still allows (de-loop persists)', d, t, 'allow');
 }
 
-// Case 9: After de-loop allow, a HIGHER token count re-blocks.
+// Case 9: After de-loop allow, a HIGHER token count still ALLOWS (de-loop releases despite growth).
 {
   const d = freshDir();
   setupOwner(d, 'owner-session-1234');
   const t1 = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
   check('setup: 60% blocks', d, t1, 'block'); // writes state=120000
-  check('de-loop: same tokens allows', d, t1, 'allow'); // state resets to -1
-  // Now tokens grew (session continued): must block again.
+  check('de-loop: same tokens allows', d, t1, 'allow'); // state stays 120000 (not reset, 120000 not < 120000)
+  // Tokens grew (restart in progress, model doing work): must still ALLOW - de-loop holds.
   const t2 = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 150000 });
-  check('after de-loop: higher tokens re-blocks', d, t2, 'block');
+  check('after de-loop: higher tokens still allows (de-loop releases despite token growth)', d, t2, 'allow');
+}
+
+// Case 9b: De-loop releases after one restart despite token growth (regression test for the bug).
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-1234');
+  // Simulate: guard fired at 60% (120000), state file written.
+  const stateFile = path.join(d, '.context-guard-state');
+  fs.writeFileSync(stateFile, String(120000));
+  // Next call at ~70% (140000): with old bug this re-blocked; with fix it must allow.
+  const t = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
+  check('de-loop releases after one restart despite token growth', d, t, 'allow');
+}
+
+// Case 9c: Re-arm: after a fire at high tokens, a drop below re-arms (resets to -1), then a new fill blocks again.
+{
+  const d = freshDir();
+  setupOwner(d, 'owner-session-1234');
+  const t_high = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 120000 });
+  check('re-arm setup: 60% blocks', d, t_high, 'block'); // writes state=120000
+  // Simulate context drop after restart (new session re-read at low fill) - 30% (60000).
+  const t_low = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 60000 });
+  // Low fill = below threshold, exits before de-loop check. State file unchanged.
+  check('re-arm: 30% allows (below threshold)', d, t_low, 'allow');
+  // Now simulate another fill cycle: guard fires again - state was 120000, used=60000 < 120000, resets to -1.
+  // We must manually exercise the re-arm path by calling at high tokens while state=120000.
+  // Call at 70% (140000): lastFiredTokens=120000 >= 0, used=140000 not < 120000, so allow (de-loop still holds).
+  const t_high2 = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
+  check('re-arm: higher tokens while state=120000 still allows', d, t_high2, 'allow');
+  // Now call with tokens BELOW the recorded fire count to trigger re-arm (state -> -1).
+  // Use a call that reaches the de-loop check: must be above threshold (60%) but below 120000.
+  // 110000 / 200000 = 55% - below 50% threshold? No - 110000/200000=55% which is above 50% threshold.
+  // Used=110000 < lastFiredTokens=120000 -> resets state to -1 -> allow.
+  const t_rearm = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 110000 });
+  check('re-arm: tokens below fire count resets state to -1', d, t_rearm, 'allow');
+  // Subsequent call at high tokens: state=-1, lastFiredTokens=-1, so >= 0 is false -> blocks again.
+  const t_refire = makeTranscript(d, { model: 'claude-sonnet-3-5', input_tokens: 140000 });
+  check('re-arm: after reset, high tokens block again', d, t_refire, 'block');
 }
 
 // --- Degrade cases ---

@@ -148,15 +148,15 @@ try {
   if (!isNaN(parsed)) lastFiredTokens = parsed;
 } catch (e) {}
 
-if (lastFiredTokens >= used) {
-  // Tokens have not grown since last fire: the model emitted the restart prompt
-  // and is now trying to stop. Allow this one stop and reset the state so future
-  // stops re-evaluate. This is the de-loop: we fired, they restarted, let them stop.
-  try { fs.writeFileSync(stateFile, String(-1)); } catch (e) {}
+if (lastFiredTokens >= 0) {
+  // Fired once already: allow the stop. Re-arm only when context actually drops.
+  if (used < lastFiredTokens) {
+    try { fs.writeFileSync(stateFile, String(-1)); } catch (e) {}
+  }
   process.exit(0);
 }
 
-// Record the current token count so the next stop can detect the de-loop.
+// First fire: record the count and block once.
 try { fs.writeFileSync(stateFile, String(used)); } catch (e) {}
 
 const pct = Math.round(fill * 100);
