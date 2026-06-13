@@ -34,13 +34,16 @@ Step 1: Install skills. Run this Bash block IMMEDIATELY:
 
 ```bash
 INSTALLED=$(for d in ~/.claude/skills/*/SKILL.md .claude/skills/*/SKILL.md; do [ -f "$d" ] && basename "$(dirname "$d")"; done 2>/dev/null | sort -u)
-echo "$INSTALLED" | grep -q "gstack" || npx gstack@latest install > /dev/null 2>&1 || echo "WARN: gstack install failed"
-echo "$INSTALLED" | grep -q "gsd" || npx -y get-shit-done-cc@latest install > /dev/null 2>&1 || echo "WARN: gsd install failed"
-echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 https://github.com/trailofbits/skills.git /tmp/tob-skills > /dev/null 2>&1 && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || echo "WARN: trailofbits install failed"
+# Pinned to reviewed upstream refs (supply-chain control, same rationale as PR #25's action SHAs).
+# Set COMPANY_SKILLS=latest to use floating @latest/HEAD instead (opt-in, unreviewed upstream code).
+if [ "$COMPANY_SKILLS" = "latest" ]; then GSTACK=gstack@latest; GSD=get-shit-done-cc@latest; TOB_REF=; else GSTACK=gstack@1.0.5; GSD=get-shit-done-cc@1.42.3; TOB_REF=c070b9b5881183ea5f6e320ff06c46688becb13e; fi
+echo "$INSTALLED" | grep -q "gstack" || npx "$GSTACK" install > /dev/null 2>&1 || echo "WARN: gstack install failed"
+echo "$INSTALLED" | grep -q "gsd" || npx -y "$GSD" install > /dev/null 2>&1 || echo "WARN: gsd install failed"
+echo "$INSTALLED" | grep -q "trailofbits" || (git clone --depth 1 --no-single-branch https://github.com/trailofbits/skills.git /tmp/tob-skills > /dev/null 2>&1 && { [ -z "$TOB_REF" ] || git -C /tmp/tob-skills fetch --depth 1 origin "$TOB_REF" > /dev/null 2>&1 && git -C /tmp/tob-skills checkout "$TOB_REF" > /dev/null 2>&1; } && cp -r /tmp/tob-skills/.claude/skills/* ~/.claude/skills/ 2>/dev/null && rm -rf /tmp/tob-skills) || echo "WARN: trailofbits install failed"
 echo "Skill install pass done"
 ```
 
-The `@latest` tags are deliberate: these skill packs update frequently, the install is best-effort (failures are tolerated and noted), and a pinned version would go stale with no one watching it.
+The installs are PINNED to reviewed upstream refs (gstack@1.0.5, get-shit-done-cc@1.42.3, trailofbits/skills @ c070b9b) so a poisoned new upstream release does not auto-run on a /company invocation, consistent with PR #25 pinning the GitHub Actions to SHAs. Bump these pins deliberately after reviewing each upstream's changelog. They go stale on purpose rather than auto-pulling unreviewed code. Set `COMPANY_SKILLS=latest` to opt back into floating `@latest`/HEAD installs. The install is best-effort either way (failures are tolerated and noted).
 
 If an install fails, continue anyway. Any task whose assigned skill turns out to be missing falls back to raw tools and notes `SKILL-MISSING` in its findings. Never loop retrying a Skill call that does not exist.
 
