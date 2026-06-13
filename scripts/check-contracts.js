@@ -46,10 +46,11 @@ blocks.forEach((b, i) => {
   const vw = (b.split('VERIFY-WITH:')[1] || '').split('\n')[0].trim();
   const errs = [];
   if (missing.length) errs.push('missing ' + missing.join(' '));
-  // 8g fix: length-only check let vacuous filler pass. Require a command/verb
-  // token, path component, or URL so bare phrases like "yes done" are rejected.
+  // 8g fix: require a command/verb token, path component, or URL so bare phrases
+  // like "yes done" are rejected. The old vw.length < 8 guard was removed: it
+  // caused a false-positive on real short commands like "git log" (7 chars).
   const VW_RE = /[/.:]|\b(test|grep|node|python3?|gh|git|curl|cat|ls|npm|make|pytest|diff|echo|jq|bash|sh)\b|\$\(|`|\|\||&&/;
-  if (b.includes('VERIFY-WITH:') && (vw.length < 8 || !VW_RE.test(vw))) errs.push('VERIFY-WITH is empty or vacuous');
+  if (b.includes('VERIFY-WITH:') && (!vw.length || !VW_RE.test(vw))) errs.push('VERIFY-WITH is empty or vacuous');
   // ROI must have non-empty content after the colon so triage has something to sort on.
   const roi = (b.split('ROI:')[1] || '').split('\n')[0].trim();
   if (b.includes('ROI:') && roi.length < 3) errs.push('ROI is empty or too short');

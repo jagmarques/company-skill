@@ -124,7 +124,7 @@ function isWorktreeDirty(wtPath) {
 // Check if a branch name has an OPEN PR. Returns true if open PR found.
 function hasOpenPR(branchName) {
   const r = tryRun('gh', ['pr', 'list', '--head', branchName, '--state', 'open', '--json', 'number']);
-  if (r.status !== 0 || r.error) return false; // degrade: assume safe to skip
+  if (r.status !== 0 || r.error) return true; // fail safe: assume open PR exists to block deletion
   try {
     const prs = JSON.parse(r.stdout || '[]');
     return prs.length > 0;
