@@ -167,8 +167,9 @@ function refreshCcusage(sub) {
 }
 
 // ---------- pricing (per MTok list prices) ----------
-// pin = current top tier since Fable 5 is pulled; revert to fable when it returns
-const TOP_TIER_BASELINE = 'claude-opus-4-8';
+// Baseline derives from the live session model so it auto-corrects across Fable<->Opus transitions.
+// Interim fallback: claude-opus-4-8 (current top tier while Fable 5 is suspended).
+const INTERIM_TOP_TIER = 'claude-opus-4-8';
 
 function priceFor(model) {
   const m = String(model || '').toLowerCase();
@@ -202,7 +203,9 @@ function summarizeBreakdowns(breakdowns) {
   return { models, input: inT, output: outT, cacheCreation: cw, cacheRead: cr, total: inT + outT + cw + cr, cost };
 }
 
-function computeSavings(win) {
+function computeSavings(win, sessionModel) {
+  // Use session model as the top-tier baseline so rates auto-correct when Fable returns.
+  const baseline = (sessionModel && sessionModel.trim()) ? sessionModel : INTERIM_TOP_TIER;
   if (!win || !win.models.length) {
     return {
       tieringSaved: null, cacheSaved: null, bestModel: null, estimated: false,
@@ -210,7 +213,7 @@ function computeSavings(win) {
     };
   }
   let estimated = false;
-  const topPrice = priceFor(TOP_TIER_BASELINE);
+  const topPrice = priceFor(baseline);
   const hypothetical =
     (win.input * topPrice.i + win.output * topPrice.o +
       win.cacheCreation * topPrice.w + win.cacheRead * topPrice.r) / 1e6;
@@ -225,7 +228,7 @@ function computeSavings(win) {
   }
   const tieringSaved = Math.max(0, hypothetical - actualCost);
   return {
-    tieringSaved, cacheSaved, topTierModel: TOP_TIER_BASELINE, estimated,
+    tieringSaved, cacheSaved, topTierModel: baseline, estimated,
     caveat: 'Approximate: computed from API list prices. On a subscription plan these dollars are notional.'
   };
 }
@@ -333,18 +336,19 @@ function parseAgentDetail(file, st) {
   const hit = agentParseCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs) return hit.val;
   const entries = parseLines(cachedReadFile(file, AGENT_TAIL));
-  let model = null, tokens = 0, toolCalls = 0;
+  let model = null, toolCalls = 0, lastUsage = null;
   for (const e of entries) {
     if (e.type !== 'assistant' || !e.message) continue;
     if (e.message.model) model = e.message.model;
-    const u = e.message.usage;
-    if (u) {
-      tokens += (u.input_tokens || 0) + (u.output_tokens || 0) +
-        (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    }
+    // Track the most-recent usage block only (cache_read accumulates per turn; sum inflates ~73x).
+    if (e.message.usage) lastUsage = e.message.usage;
     const content = Array.isArray(e.message.content) ? e.message.content : [];
     for (const c of content) if (c.type === 'tool_use') toolCalls++;
   }
+  // Tokens from the last assistant turn: matches computeContextFill's last-turn approach.
+  const u = lastUsage || {};
+  const tokens = (u.input_tokens || 0) + (u.output_tokens || 0) +
+    (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   const val = { model, tokens, toolCalls };
   agentParseCache.set(file, { mtimeMs: st.mtimeMs, val });
   return val;
@@ -409,18 +413,22 @@ function collectAgents(projDir, sessionId) {
     const mtimeMs = st ? st.mtimeMs : 0;
     const ageMs = now - mtimeMs;
 
-    // Content-based running detection: end_turn = done; tool_use = waiting for tool result.
-    // Fall back to mtime when the transcript is unreadable.
+    // Status is driven by stop_reason, not mtime. tool_use = still waiting on a tool result
+    // (may be paused for many minutes); end_turn or any terminal reason = finished.
+    // mtime is only used to distinguish 'running' (file just updated) vs 'finishing' (idle pause).
     const { stopReason, lastTs } = st ? agentTailStatus(jsonl) : { stopReason: null, lastTs: null };
-    const contentFinished = stopReason === 'end_turn';
-    // Agent is active if content says it is not finished AND file was touched recently enough.
-    const active = st ? (!contentFinished && ageMs < ACTIVE_MS) : false;
-    // Status: use stop_reason for precision, mtime for recency signal.
+    const isToolUsePaused = stopReason === 'tool_use';
+    const isEndTurn = stopReason === 'end_turn';
+    // active = not finished per content; never gated on mtime so long pauses don't drop the agent.
+    const active = st ? (!isEndTurn && stopReason !== null ? true : (stopReason === null && ageMs < ACTIVE_MS)) : false;
+    // Status: tool_use -> running (regardless of age); end_turn -> finished; unknown -> use mtime.
     let status;
     if (!st) { status = 'unknown'; }
-    else if (contentFinished) { status = 'finished'; }
+    else if (isEndTurn) { status = 'finished'; }
+    else if (isToolUsePaused) { status = 'running'; }
+    else if (stopReason !== null) { status = 'finished'; }
     else if (ageMs < 30000) { status = 'running'; }
-    else if (active) { status = 'finishing'; }
+    else if (ageMs < ACTIVE_MS) { status = 'finishing'; }
     else { status = 'finished'; }
 
     const agent = {
@@ -630,9 +638,10 @@ function parseCompanyMd() {
 
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim();
-    // ## heading = new department
+    // ## heading = new department; strip parenthetical metadata (e.g. "Growth (added 2026-06-09)")
     if (/^##\s+/.test(line)) {
-      const deptName = line.replace(/^##\s+/, '').trim();
+      const raw = line.replace(/^##\s+/, '').trim();
+      const deptName = raw.replace(/\s*\([^)]*\).*$/, '').trim();
       currentDept = { name: deptName, lead: null, roles: [] };
       departments.push(currentDept);
       continue;
@@ -640,10 +649,10 @@ function parseCompanyMd() {
     // Bullet line = a role entry (- **Name** - desc or - Name: desc or - Name, desc)
     if (/^[-*]\s+/.test(line) && currentDept) {
       const body = line.replace(/^[-*]\s+/, '').replace(/\*\*/g, '');
-      // Role name = text before first comma, dash, or colon
+      // Role name = text before first comma, dash, or colon; strip trailing parenthetical metadata
       const nameMatch = body.match(/^([^,\-:]+)/);
       if (!nameMatch) continue;
-      let roleName = nameMatch[1].trim();
+      let roleName = nameMatch[1].replace(/\s*\([^)]*\).*$/, '').trim();
       // Strip trailing "Lead" prefix markers like "Lead:"
       const isExplicitLead = /^lead:/i.test(roleName) || / lead$/i.test(roleName);
       if (/^lead:/i.test(roleName)) roleName = roleName.replace(/^lead:/i, '').trim();
@@ -1054,7 +1063,7 @@ function buildState() {
     resolvedSessionId,
     warning,
     tokens: { available: !!(daily || session || blocks), today, session: sessionInfo, block },
-    savings: computeSavings(today),
+    savings: computeSavings(today, orch.sessionModel),
     context: contextFill,
     agents: activeAgents.map((a) => ({
       agentType: a.agentType, model: a.model || null, description: a.description,
