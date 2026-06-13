@@ -251,6 +251,14 @@ else
   note_fail "cleanup fail-safe matrix failed"
 fi
 
+# 23. buildOrgTree integration: /api/state must return HTTP 200 with a valid
+#     org tree. Catches the activeCycle dangling-ref regression (HTTP 500).
+if node tests/buildorgtree-integration.test.js; then
+  echo "ok: buildOrgTree integration (/api/state returns valid tree)"
+else
+  note_fail "buildOrgTree integration failed (/api/state returned error)"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1

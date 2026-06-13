@@ -203,20 +203,25 @@ function parse(text) {
 // Pre-fix: lead is determined by first-role heuristic only, so reordering
 //          roles would produce the wrong lead. Heading lead is discarded.
 // Post-fix: lead matches the role declared in the heading, regardless of order.
+//
+// Uses "Chief Architect" (no /lead$/ suffix) so the pre-fix /lead$/
+// heuristic cannot accidentally promote it - making this case truly
+// discriminating against the pre-fix code.
 // ----------------------------------------------------------------
 {
-  // QA Lead is listed second but declared as lead in the heading.
+  // Chief Architect is listed second but declared as lead in the heading.
+  // "Backend Developer" is first, so pre-fix picks it; post-fix picks "Chief Architect".
   const text = [
-    '## Quality (Lead: QA Lead)',
-    '- Security Reviewer, vulnerability analysis',
-    '- QA Lead, test strategy',
+    '## Platform (Lead: Chief Architect)',
+    '- Backend Developer, API design',
+    '- Chief Architect, system design',
   ].join('\n');
   const { departments } = parse(text);
-  const dept = departments.find(d => d.name === 'Quality');
+  const dept = departments.find(d => d.name === 'Platform');
   check(
-    'BUG #3 A: heading "(Lead: QA Lead)" wins over first-role heuristic',
+    'BUG #3 A: heading "(Lead: Chief Architect)" wins over first-role heuristic',
     dept && dept.lead && dept.lead.name,
-    'QA Lead'
+    'Chief Architect'
   );
 }
 
@@ -246,22 +251,25 @@ function parse(text) {
 }
 
 // ----------------------------------------------------------------
-// BUG #3 case C: combined - heading declares the lead by role name,
-//                that role also appears as a normal bullet (not Lead: form).
-//                Verifies heading-lead overrides first-role default.
+// BUG #3 case C: heading declares a lead that is NOT the first bullet.
+//                Pre-fix picks the first role; post-fix applies heading override.
+//                Uses "Database Expert" (no /lead$/ suffix) so the pre-fix
+//                /lead$/ heuristic cannot accidentally promote it.
 // ----------------------------------------------------------------
 {
+  // "Frontend Expert" is first, "Database Expert" is second but declared in heading.
+  // Pre-fix: picks "Frontend Expert"; post-fix: picks "Database Expert".
   const text = [
-    '## Engineering (Lead: CTO)',
-    '- CTO, technical decisions',
-    '- Backend Developer, API design',
+    '## Infrastructure (Lead: Database Expert)',
+    '- Frontend Expert, UI components',
+    '- Database Expert, query optimisation',
   ].join('\n');
   const { departments } = parse(text);
-  const dept = departments.find(d => d.name === 'Engineering');
+  const dept = departments.find(d => d.name === 'Infrastructure');
   check(
-    'BUG #3 C: heading "(Lead: CTO)" with CTO as first role still resolves correctly',
+    'BUG #3 C: heading "(Lead: Database Expert)" overrides first-role "Frontend Expert"',
     dept && dept.lead && dept.lead.name,
-    'CTO'
+    'Database Expert'
   );
 }
 

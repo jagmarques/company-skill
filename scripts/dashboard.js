@@ -879,7 +879,7 @@ function buildOrgTree(projDir, sessionId, liveAgents) {
   }
 
   const note = 'Logically: CEO delegates to dept leads; leads own their team. Physically the orchestrator spawns all agents.';
-  return { nodes, edges, note, activeCycle };
+  return { nodes, edges, note };
 }
 
 // ---------- registry ----------
