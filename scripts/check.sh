@@ -192,6 +192,28 @@ else
   note_fail "doc-command check failed"
 fi
 
+# 18. Workflow lint: every uses: pinned to SHA, permissions declared, concurrency on check* (WARN).
+if bash scripts/lint-workflows.sh; then
+  echo "ok: workflow lint"
+else
+  note_fail "workflow lint failed"
+fi
+
+# 19. SKILL.md bash blocks: syntax-check each fenced bash block.
+#     Uses shellcheck when available, falls back to bash -n.
+if node scripts/lint-md-bash.js skill/SKILL.md; then
+  echo "ok: SKILL.md bash block lint"
+else
+  note_fail "SKILL.md bash block lint failed"
+fi
+
+# 20. Version sync: package.json version must match top ## heading in CHANGELOG.md.
+if node scripts/check-version.js; then
+  echo "ok: version matches CHANGELOG.md"
+else
+  note_fail "version/CHANGELOG mismatch"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
