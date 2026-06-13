@@ -48,6 +48,20 @@ function parseThreshold() {
   return v > 1 ? v / 100 : v;
 }
 
+// Hard ceiling: the toggle CANNOT suppress a block at or above this level.
+// Default 0.80. Overridable via COMPANY_CONTEXT_HARD_CEILING (fraction or percent).
+// If the parsed value is below the soft threshold, it is clamped up to the threshold.
+function parseHardCeiling(threshold) {
+  const raw = process.env.COMPANY_CONTEXT_HARD_CEILING;
+  if (!raw) return 0.80;
+  const v = parseFloat(raw);
+  if (isNaN(v)) return 0.80;
+  // accept either fraction (0.8) or percent (80)
+  const frac = v > 1 ? v / 100 : v;
+  // hard ceiling must be >= soft threshold
+  return frac >= threshold ? frac : threshold;
+}
+
 // Read stdin synchronously (fd 0). Fail-open on any error.
 let stdinData = null;
 try {
@@ -152,6 +166,7 @@ const used =
 
 const contextWindow = detectWindow(lastModelId);
 const threshold = parseThreshold();
+const hardCeiling = parseHardCeiling(threshold);
 const fill = used / contextWindow;
 
 if (fill < threshold) process.exit(0);
@@ -159,9 +174,10 @@ if (fill < threshold) process.exit(0);
 // Per-session toggle: read .company/context-guard-config.json for this session.
 // Shape: { "sessions": { "<id>": { "enforceRestart": true|false } } }
 // Default (no file, no entry, parse error) = enforceRestart: true (safe default).
-// If enforceRestart === false for this session, skip the hard block entirely.
-// The fill % is still computed above for advisory purposes.
-if (sessionId) {
+// If enforceRestart === false for this session, and fill is BELOW the hard ceiling,
+// the toggle suppresses the soft-threshold block. At or above the hard ceiling the
+// toggle has no effect and we fall through to block unconditionally.
+if (sessionId && fill < hardCeiling) {
   const cfgPath = path.join(companyDir, 'context-guard-config.json');
   try {
     const cfgRaw = fs.readFileSync(cfgPath, 'utf8');
@@ -170,7 +186,7 @@ if (sessionId) {
         cfg.sessions && typeof cfg.sessions === 'object' &&
         cfg.sessions[sessionId] && typeof cfg.sessions[sessionId] === 'object' &&
         cfg.sessions[sessionId].enforceRestart === false) {
-      // Toggle is OFF: allow through without blocking
+      // Toggle is OFF and below the hard ceiling: allow through without blocking
       process.exit(0);
     }
     // Any other value (true, missing, or unknown) falls through to block
@@ -264,13 +280,21 @@ try {
 
 const pct = Math.round(fill * 100);
 const threshPct = Math.round(threshold * 100);
+const ceilPct = Math.round(hardCeiling * 100);
 const sessionTag = sessionId ? ' [session ' + sessionId + ']' : '';
 
-console.log(JSON.stringify({
-  decision: 'block',
-  reason: '[COMPANY] Context at ' + pct + '% (>= ' + threshPct + '% threshold). ' +
+// Emit a distinct reason when the hard ceiling is what's enforcing the block.
+const atHardCeiling = fill >= hardCeiling;
+const reason = atHardCeiling
+  ? '[COMPANY] Context at ' + pct + '% (>= ' + ceilPct + '% HARD CEILING). ' +
+    'The per-session enforceRestart toggle CANNOT suppress this restart. ' +
+    'Run /company restart NOW: quiesce in-flight agents, commit their work as draft PRs, ' +
+    'refresh STATUS/NEXT, run the restart debate gate, and emit the verified continuation prompt.' +
+    sessionTag
+  : '[COMPANY] Context at ' + pct + '% (>= ' + threshPct + '% threshold). ' +
     'Run /company restart NOW: quiesce in-flight agents, commit their work as draft PRs, ' +
     'refresh STATUS/NEXT, run the restart debate gate, and emit the verified continuation prompt. ' +
-    'This is enforced, not advisory - do not continue new work.' + sessionTag
-}));
+    'This is enforced, not advisory - do not continue new work.' + sessionTag;
+
+console.log(JSON.stringify({ decision: 'block', reason: reason }));
 process.exit(0);
