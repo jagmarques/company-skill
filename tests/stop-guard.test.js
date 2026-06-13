@@ -285,6 +285,93 @@ function writeCriteria(dir, value) {
   check('goal line opens the block reason', d, 'block', 'GOAL: ship the payments retry queue');
 }
 
+// 25. 3d fix: deleting criteria.lock is now a no-op; external lock is authoritative.
+// With a writable home, first sight writes the external lock. Deleting .company/criteria.lock
+// and shrinking criteria.json must still BLOCK because the external lock retains the full set.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'easy', passes: false, evidence: null },
+    { id: 2, description: 'hard', passes: false, evidence: null }] });
+  runHook(d, { env: { HOME: home } }); // first sight: external lock written with ids 1,2
+  // Delete the .company lock and shrink criteria to only id 1 (id 2 removed).
+  try { fs.unlinkSync(path.join(d, 'criteria.lock')); } catch (e) {}
+  writeCriteria(d, { criteria: [{ id: 1, description: 'easy', passes: true, evidence: 'real' }] });
+  check('3d: rm criteria.lock + shrink still blocks via external lock', d, 'block',
+    'locked criterion', { env: { HOME: home } });
+}
+
+// 26. 4d fix: owner rewriting OWNER to evict itself must still block.
+// The session is first seen as a valid owner (OWNER contains it) and recorded in
+// the external owners log. It then rewrites OWNER to a different id - the external
+// log still has it, so it is NOT treated as foreign and is still blocked.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), 'real-owner-aaaa1111\n');
+  // First run: records real-owner-aaaa1111 in external owners log.
+  runHook(d, { input: JSON.stringify({ session_id: 'real-owner-aaaa1111' }), env: { HOME: home } });
+  // Now evict: rewrite OWNER to a different valid id.
+  fs.writeFileSync(path.join(d, 'OWNER'), 'other-session-bbbb2222\n');
+  // The real owner should still be BLOCKED because it is in the external log.
+  check('4d: owner rewrites OWNER to evict self still blocks', d, 'block', 'criteria not met',
+    { input: JSON.stringify({ session_id: 'real-owner-aaaa1111' }), env: { HOME: home } });
+}
+
+// 27. 4a regression: a genuinely foreign session (never in OWNER, never in external log)
+// must still be allowed (not gated). This confirms the 4d fix does not break 4a.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  fs.writeFileSync(path.join(d, 'OWNER'), 'real-owner-cccc3333\n');
+  // Run once to establish the real owner in the external log.
+  runHook(d, { input: JSON.stringify({ session_id: 'real-owner-cccc3333' }), env: { HOME: home } });
+  // A totally unrelated session must still be exempt.
+  check('4a regression: foreign session (never in OWNER or external log) exempt',
+    d, 'allow', null,
+    { input: JSON.stringify({ session_id: 'unrelated-dddd4444' }), env: { HOME: home } });
+}
+
+// 28. Degrade path: when HOME points at an unwritable/nonexistent location, the hook
+// must not crash and must still block as before (no fail-open beyond today's baseline).
+{
+  const d = freshDir();
+  writeCriteria(d, { criteria: [{ id: 1, description: 'a', passes: false, evidence: null }] });
+  check('degrade: unwritable HOME does not crash and still blocks', d, 'block', 'criteria not met',
+    { env: { HOME: '/nonexistent-location-xyz-degrade-test' } });
+}
+
+// 29. New-goal clear: removing the external anchor dir lets a fresh run re-snapshot.
+// This simulates the SKILL.md Parse step clearing the anchor so a new goal starts clean.
+{
+  const d = freshDir();
+  const home = freshDir();
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  const crypto = require('crypto');
+  const real = fs.realpathSync(d);
+  const key = crypto.createHash('sha256').update(real).digest('hex').slice(0, 16);
+  const anchorPath = require('path').join(home, '.claude', 'company-guard-state', key);
+  writeCriteria(d, { criteria: [
+    { id: 1, description: 'old', passes: false, evidence: null },
+    { id: 2, description: 'old2', passes: false, evidence: null }] });
+  runHook(d, { env: { HOME: home } }); // first sight: external lock written with 1,2
+  // Simulate new-goal clear: remove the external anchor dir AND the .company lock
+  // (the Parse step clears both for a new goal, symmetric with the existing stale-lock clear).
+  fs.rmSync(anchorPath, { recursive: true, force: true });
+  try { fs.unlinkSync(path.join(d, 'criteria.lock')); } catch (e) {}
+  // Now use new criteria with only id 3 - no external lock, so fresh first sight.
+  writeCriteria(d, { criteria: [
+    { id: 3, description: 'new', passes: true, evidence: 'real' }] });
+  check('new-goal clear: removing external anchor allows fresh re-snapshot',
+    d, 'allow', null, { env: { HOME: home } });
+}
+
 if (failures > 0) {
   console.log('STOP-GUARD TESTS FAILED: ' + failures);
   process.exit(1);

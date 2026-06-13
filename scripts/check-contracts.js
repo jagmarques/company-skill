@@ -46,7 +46,10 @@ blocks.forEach((b, i) => {
   const vw = (b.split('VERIFY-WITH:')[1] || '').split('\n')[0].trim();
   const errs = [];
   if (missing.length) errs.push('missing ' + missing.join(' '));
-  if (b.includes('VERIFY-WITH:') && vw.length < 8) errs.push('VERIFY-WITH is empty or vacuous');
+  // 8g fix: length-only check let vacuous filler pass. Require a command/verb
+  // token, path component, or URL so bare phrases like "yes done" are rejected.
+  const VW_RE = /[/.:]|\b(test|grep|node|python3?|gh|git|curl|cat|ls|npm|make|pytest|diff|echo|jq|bash|sh)\b|\$\(|`|\|\||&&/;
+  if (b.includes('VERIFY-WITH:') && (vw.length < 8 || !VW_RE.test(vw))) errs.push('VERIFY-WITH is empty or vacuous');
   // MODEL is optional (absent means mid). When present the tier must be
   // cheap, mid, or strong, optionally followed by the lead's justification.
   const mm = b.match(/^MODEL:\s*(.*)$/m);

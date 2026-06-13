@@ -153,6 +153,13 @@ else
   note_fail "codegraph matrix failed"
 fi
 
+# 14. Findings checker matrix: bare SOURCE: fix (8h) and well-formed cases.
+if node tests/check-findings.test.js; then
+  echo "ok: check-findings decision matrix"
+else
+  note_fail "check-findings decision matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1

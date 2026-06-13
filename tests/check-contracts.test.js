@@ -32,5 +32,10 @@ check('MODEL tier with justification passes', GOOD + 'MODEL: strong, public-faci
 check('MODEL cheap passes', GOOD + 'MODEL: cheap\n', 0);
 check('MODEL with a model name fails', GOOD + 'MODEL: haiku\n', 1);
 check('MODEL empty fails', GOOD + 'MODEL: \n', 1);
+// 8g fix: vacuous VERIFY-WITH values that meet the old length threshold must now fail.
+check('8g: "yes done" (vacuous 8-char filler) fails', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: yes done'), 1);
+check('8g: "test -f x && echo PASS" (real command) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: test -f x && echo PASS'), 0);
+check('8g: "gh pr view 1" (gh command) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: gh pr view 1'), 0);
+check('8g: "https://x/y" (URL) passes', GOOD.replace('VERIFY-WITH: grep -c x file.md', 'VERIFY-WITH: https://x/y'), 0);
 if (failures) { console.log('CHECK-CONTRACTS TESTS FAILED: ' + failures); process.exit(1); }
 console.log('ALL CHECK-CONTRACTS TESTS PASSED (' + n + ' checks)');

@@ -14,7 +14,9 @@ files.forEach(file => {
     total += 1;
     for (let j = i + 1; j < lines.length; j++) {
       if (/^FINDING:/.test(lines[j])) break;
-      if (/^SOURCE:|NOVEL - needs validation/.test(lines[j])) return;
+      // 8h fix: bare "SOURCE:" with no value used to satisfy the gate.
+      // Require at least one non-space character after the colon.
+      if (/^SOURCE:\s*\S|NOVEL - needs validation/.test(lines[j])) return;
     }
     bad += 1;
     console.error(file + ':' + (i + 1) + ' FINDING without SOURCE: ' + l.slice(0, 70));
