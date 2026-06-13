@@ -66,9 +66,8 @@ function staleNote(p) {
 // No company running
 if (!fs.existsSync(goalPath) && !fs.existsSync(criteriaPath)) process.exit(0);
 
-// Cancel signal: the only escape hatch
+// Persistent human exit. CANCEL present allows the stop. The human removes it to resume.
 if (fs.existsSync(cancelPath)) {
-  try { fs.unlinkSync(cancelPath); } catch (e) {}
   process.exit(0);
 }
 

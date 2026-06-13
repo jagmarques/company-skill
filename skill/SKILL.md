@@ -74,7 +74,7 @@ Otherwise:
 ]}
 ```
 
-Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time. When writing criteria.json for a NEW goal, delete any stale `.company/criteria.lock` from a previous run first. The stop guard re-snapshots the new id set on first sight.
+Every criterion must be yes/no checkable. No vague language. Every criterion starts FAILING: `passes: false`, `evidence: null`. Only the VERIFY phase may flip a criterion to passing, and only by writing the reproduced evidence into the `evidence` field at the same time. When writing criteria.json for a NEW goal, delete any stale `.company/criteria.lock` and `.company/CANCEL` from a previous run first. The stop guard re-snapshots the new id set on first sight, and a stale CANCEL from the prior run will not carry over.
 
 4. Record run ownership: write this session's id to `.company/OWNER` (`echo "$CLAUDE_CODE_SESSION_ID" > .company/OWNER` for a new run. When RESUMING an existing run, append with `>>` instead of overwriting). The stop guard and the compaction hooks act only on sessions listed there, so an unrelated session that happens to share the directory is never gated or redirected by your run. The id written must be the same identifier the harness pipes to hooks as `session_id` (in Claude Code both are the session id, exposed to Bash as `CLAUDE_CODE_SESSION_ID`). If a harness ever diverges the two, the gate cannot recognize its owner.
 5. Read `.company/playbook.md` if it exists (accumulated knowledge from past sessions).
@@ -285,7 +285,7 @@ Cost discipline compresses prose, never evidence. The floor under every measure:
 
 The stop guard blocks the session from stopping until ALL criteria.json entries have `passes: true` AND non-null `evidence`. There is no timing escape. Unparseable or wrong-shape criteria.json also blocks (fail closed). The criterion id set is locked on first sight (`.company/criteria.lock`): deleting a hard criterion blocks instead of unlocking, and ids added later extend the lock. The gate is session-scoped through `.company/OWNER`, so only sessions that own the run are ever blocked.
 
-The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the block reasons deliberately never name it. You, the orchestrator, NEVER touch it to escape a block: a block means the work is not done, so you continue the loop. A criteria file untouched for 24 hours still blocks, with its age surfaced so the human can spot and cancel a leftover run. If the harness force-ends the session after its consecutive-block cap, the run fails VISIBLY (criteria.json still shows the failing entries). Never paper that over with a fake flip.
+The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the block reasons deliberately never name it. CANCEL is persistent: once present, every stop attempt is allowed until the human removes it to resume. A new `/company` goal clears it alongside `criteria.lock`. You, the orchestrator, NEVER touch it to escape a block: a block means the work is not done, so you continue the loop. A criteria file untouched for 24 hours still blocks, with its age surfaced so the human can spot and cancel a leftover run. If the harness force-ends the session after its consecutive-block cap, the run fails VISIBLY (criteria.json still shows the failing entries). Never paper that over with a fake flip.
 
 ## Files
 
@@ -293,6 +293,7 @@ The cancel file (`touch .company/CANCEL`) is the HUMAN operator's exit, and the 
 .company/
   GOAL.md                      ← the goal verbatim (hooks + status read it)
   criteria.json                ← machine-checkable goal state
+  CANCEL                       ← persistent human exit (present = stop allowed; remove to resume; new goal clears it)
   MODEL_POLICY                 ← optional, TIERED or FORCE_BEST (see Model assignment)
   playbook.md                  ← accumulated lessons (THE self-improvement file)
   active-roster.md             ← employees activated for this goal

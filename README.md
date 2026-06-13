@@ -4,7 +4,7 @@
 
 **Your agent stops when it feels done. This makes it stop only when the work is actually done.**
 
-You define a team in one markdown file, hand it a goal, and walk away while it builds, reviews its own work, and keeps going until every success criterion passes with evidence a second agent reproduced. A stop hook reads criteria.json and physically blocks exit until then, and that guard is pinned by a 24-check test suite that runs green in CI.
+You define a team in one markdown file, hand it a goal, and walk away while it builds, reviews its own work, and keeps going until every success criterion passes with evidence a second agent reproduced. A stop hook reads criteria.json and physically blocks exit until then, and that guard is pinned by a 29-check test suite that runs green in CI.
 
 ```bash
 npx company-skill install
@@ -60,9 +60,9 @@ MODEL: cheap, mid, or strong with the lead's justification, or omit for mid
 
 ## Goal enforcement
 
-The skill writes `criteria.json` where every criterion starts failing, and only the VERIFY phase flips one, writing the reproduced evidence at the same time. A Stop Hook blocks the session from exiting until every criterion has `passes: true` and non-null evidence. Malformed state blocks rather than failing open. The criterion id set locks on first sight (`criteria.lock`), so deleting a hard criterion blocks instead of unlocking. The gate is session-scoped through `.company/OWNER`: only sessions that own the run are ever blocked, and the compaction hooks apply the same scoping. The only override is `touch .company/CANCEL`, reserved for the human operator, and block reasons deliberately never name it. A block reason opens with the goal's first line and carries the reviewer's note per failing criterion, so a blocked loop restarts from the diagnosis.
+The skill writes `criteria.json` where every criterion starts failing, and only the VERIFY phase flips one, writing the reproduced evidence at the same time. A Stop Hook blocks the session from exiting until every criterion has `passes: true` and non-null evidence. Malformed state blocks rather than failing open. The criterion id set locks on first sight (`criteria.lock`), so deleting a hard criterion blocks instead of unlocking. The gate is session-scoped through `.company/OWNER`: only sessions that own the run are ever blocked, and the compaction hooks apply the same scoping. The only override is `touch .company/CANCEL`, reserved for the human operator. CANCEL is persistent: once present, every stop attempt is allowed until the human removes it to resume, and starting a new goal clears it. Block reasons deliberately never name CANCEL. A block reason opens with the goal's first line and carries the reviewer's note per failing criterion, so a blocked loop restarts from the diagnosis.
 
-All of that is pinned by the 24-check decision-matrix test (`node tests/stop-guard.test.js`) plus the 13-check contract-gate test, both run by CI on every pull request.
+All of that is pinned by the 29-check decision-matrix test (`node tests/stop-guard.test.js`) plus the 13-check contract-gate test, both run by CI on every pull request.
 
 ## Self-improving playbook
 
