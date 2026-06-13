@@ -66,17 +66,23 @@ Multi-agent orchestration buys quality with tokens. Anthropic's engineering team
 
 **[Stop guard](skill/SKILL.md)** - a hook physically blocks session exit until every criterion has `passes: true` and reproduced evidence. Malformed state blocks rather than fails open. The criterion id set locks on first sight, so deleting a hard criterion blocks instead of unlocking. Pinned by a [34-check decision-matrix test](tests/stop-guard.test.js).
 
+**[Context-fill guard](hooks/context-guard.js)** - a second Stop hook enforces a `/company restart` once context reaches a configurable fill threshold (default 50%). It reads the model id from the transcript to detect the context window - 1M tokens for Opus 4 and `[1m]` models, 200K for others, defaulting to 1M for unknown models so it never false-fires. `COMPANY_CONTEXT_THRESHOLD` and `COMPANY_CONTEXT_WINDOW` env vars allow overrides. A de-loop flag prevents it from re-blocking after a restart is already in flight. Covered by a [37-check battle-test suite](tests/context-guard.test.js).
+
+**[Restart debate gate](scripts/restart-debate.js)** - when the context guard fires, it only releases the de-loop block once a fresh `RESTART_DEBATE_CONFIRMED` artifact exists. `scripts/restart-debate.js` records a 3-role debate (lead, devil's advocate, completeness reviewer) and writes the artifact. CANCEL escapes the gate. Covered by an [11-check test suite](tests/restart-debate.test.js).
+
 **[Delegation contracts](skill/SKILL.md)** - a task does not exist without a filled contract. [`scripts/check-contracts.js`](scripts/check-contracts.js) rejects a contract missing any required field, carrying a vacuous VERIFY-WITH, naming an invalid MODEL tier, or declaring a cyclic dependency. Validated by a [17-check gate test](tests/check-contracts.test.js).
 
 **Double verification** - the Internal Reviewer re-runs every VERIFY-WITH command independently. The Devil's Advocate attacks everything marked passing. Two independent reproductions are evidence. One transcript is a hypothesis.
 
 **Dependency-wave execution** - contracts carry `DEPENDS-ON` fields. The orchestrator launches all contracts whose dependencies have cleared in parallel, so unrelated work runs concurrently.
 
+**Worker handoff discipline** - a worker's final two tool calls must be findings-write and draft-PR creation. No trailing Skill call (like `/humanizer`) may displace them. The orchestrator also runs a backstop check after each worker: if a draft PR or findings file is missing, it salvages from the pushed branch before proceeding.
+
 **Self-improving playbook** - after each session the orchestrator records what worked, what failed, and which employees performed, each entry citing the artifact that proves it. The playbook goes into lead prompts before every THINK phase.
 
 **[Codebase graph](scripts/codegraph.js)** - on repos with 200+ tracked files, `scripts/codegraph.js update` builds a commit-keyed ranked symbol map into `.company/codegraph/`. `status` reports FRESH or STALE against origin. `map` emits a token-budgeted symbol map for lead prompts and refuses to emit a stale map unless `--allow-stale` labels it, so planning never runs on unmarked stale structure. This is a ranked symbol map by reference count, not semantic search.
 
-**[Observability dashboard](#dashboard)** - a zero-dependency localhost dashboard for live token cost, active agents, criteria progress, and more.
+**[Observability dashboard](#dashboard)** - a zero-dependency localhost dashboard for live token cost, active agents, criteria progress, and more. Auto-starts with `/company` and shows its URL in the cycle banner.
 
 **Skill routing** - leads route tasks to installed skills (/review, /investigate, /qa, /ship, /browse, /secure-phase, /gsd-debug, /gsd-plan-phase) and the installer fetches the packs on first run. When a skill is missing, workers fall back to raw tools and note SKILL-MISSING.
 
@@ -103,6 +109,19 @@ graph LR
 At THINK the CEO orchestrator reads the goal and the playbook, activates the needed employees, and writes delegation contracts in dependency order. At EXECUTE, workers run in parallel waves and append FINDING plus SOURCE lines to their findings files. At VERIFY, the Internal Reviewer re-runs every VERIFY-WITH command, and the Devil's Advocate attacks every passing result. If anything fails, COMPRESS writes a cycle briefing with the diagnosis and the loop continues. The stop guard enforces the outer condition: no exit until every criterion passes with reproduced evidence.
 
 A contract's path: the lead writes it, `check-contracts.js` gates it, the worker runs it (VERIFY-WITH last, before reporting), the reviewer re-runs VERIFY-WITH independently, and the result lands in the employee's findings file.
+
+**Installed hooks** (registered in `~/.claude/settings.json` by the installer):
+
+| Hook name | Event | What it does |
+|---|---|---|
+| `company-stop-guard` | Stop | Blocks exit while any criterion is unmet or lacks evidence |
+| `company-context-guard` | Stop | Blocks exit when context fill reaches the threshold, forces restart |
+| `company-precompact` | PreCompact | Saves company state before context compaction |
+| `company-session-restore` | SessionStart | Restores company context after compaction |
+
+**Installed scripts** (copied to `~/.claude/skills/company/scripts/` by the installer):
+
+`codegraph.js`, `check-contracts.js`, `check-findings.js`, `restart-debate.js`, `dashboard.js`, `secret-scan.js`
 
 
 ## How this differs
@@ -195,7 +214,7 @@ State lives in `./.company/` (relocate with `COMPANY_DIR`, the hooks honor it):
 bash scripts/check.sh
 ```
 
-Parses every hook and installer, validates frontmatter, greps for content that must never ship (brand names, em dashes, IP addresses, rule references), and runs the full test suite: 34-check stop-guard decision matrix, 17-check contract-gate matrix, 28-check codegraph matrix, 9-check findings matrix. CI runs the same script on every pull request.
+Parses every hook and installer, validates frontmatter, greps for content that must never ship (brand names, em dashes, IP addresses, rule references), and runs the full test suite: 34-check stop-guard matrix, 37-check context-guard matrix, 17-check contract-gate matrix, 28-check codegraph matrix, 9-check findings matrix, 11-check restart-debate matrix, 3-check packaging parity test. CI runs the same script on every pull request.
 
 Pull requests welcome. Every change lands as a draft PR - the merge gate is manual.
 
