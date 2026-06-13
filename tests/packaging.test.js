@@ -140,6 +140,36 @@ check('bin/install.js and install.sh installer lists are identical', function ()
   }
 });
 
+// Case 4: non-script files that bin/install.js reads at runtime (e.g. templates)
+// must be listed in the package.json "files" allowlist. install.sh downloads
+// them from GitHub so it never needs them locally; only bin/install.js is affected.
+check('non-script runtime files in package.json files', function () {
+  const installSrc = fs.readFileSync(path.join(ROOT, 'bin', 'install.js'), 'utf8');
+  const pkgFiles = new Set(JSON.parse(
+    fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')
+  ).files || []);
+  // Extract relative file paths passed to path.join(srcDir, ...) calls (template-like).
+  // Pattern: path.join(srcDir, 'some/file.ext') or path.join(srcDir, 'NAME')
+  const refs = installSrc.match(/path\.join\(srcDir,\s*'([^']+)'\)/g) || [];
+  const missing = [];
+  for (const r of refs) {
+    const m = r.match(/path\.join\(srcDir,\s*'([^']+)'\)/);
+    if (!m) continue;
+    const rel = m[1];
+    // Skip directory names (no extension) and things already checked by other cases
+    if (!rel.includes('.')) continue;
+    // Skip scripts and hooks - covered by cases 1-3
+    if (rel.startsWith('scripts/') || rel.startsWith('hooks/') ||
+        rel.startsWith('agents/') || rel.startsWith('commands/') ||
+        rel.startsWith('skill/') || rel.startsWith('bin/')) continue;
+    if (!pkgFiles.has(rel)) missing.push(rel);
+  }
+  if (missing.length > 0) {
+    return 'file(s) read by bin/install.js at runtime but missing from package.json "files": '
+      + missing.join(', ');
+  }
+});
+
 if (failures > 0) {
   console.log('PACKAGING TESTS FAILED: ' + failures);
   process.exit(1);

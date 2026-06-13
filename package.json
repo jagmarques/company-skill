@@ -30,6 +30,7 @@
     "commands/run.md",
     "commands/status.md",
     "commands/resume.md",
+    "COMPANY.md.template",
     "MODEL_POLICY.template",
     "README.md",
     "LICENSE"
