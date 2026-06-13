@@ -408,6 +408,8 @@ The continuation prompt then lists each preserved DRAFT PR by number so the fres
 
 Only after their corrections are folded in is the prompt emitted, as a single fenced block. If the user asks "are you sure, did you verify it" the answer must already be yes because this gate ran. If sub-agents are unavailable (rate limit, no credentials for gh or the remote), say so explicitly and mark each unverified claim "UNVERIFIED" rather than asserting it. Keep concurrent sub-agents <= 3 and retry transient failures. Do not skip the gate because of an error.
 
+**Mechanical enforcement:** once the 3-role debate is complete, pipe the three role verdicts as a JSON object to `node scripts/restart-debate.js` (the script lives next to SKILL.md in the installed skill). Example: `echo '{"sourceVerifier":"CONFIRMED all claims","devilsAdvocate":"No ambiguities found","completenessCritic":"All PRs and tasks accounted for"}' | node scripts/restart-debate.js`. The script validates all three fields are non-empty and writes `.company/RESTART_DEBATE_CONFIRMED`. The continuation prompt MUST NOT be emitted until that script exits 0. The `company-context-guard` Stop hook will keep blocking the stop until the fresh artifact exists - CANCEL remains the unconditional escape for the human. Note: the script records that the debate ran with non-empty role outputs; it cannot grade the quality of each role's analysis.
+
 ### Output discipline
 
 The restart output is ONLY the single fenced prompt block - nothing after it. The user copies that block straight into a fresh session, so any trailing citation, summary, or commentary is noise. Run the debate gate silently. Do not append a "verified by..." line or any explanation below the block.

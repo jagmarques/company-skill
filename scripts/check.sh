@@ -167,6 +167,13 @@ else
   note_fail "check-findings decision matrix failed"
 fi
 
+# 15. Restart-debate recorder: missing/empty fields -> exit 1, all present -> artifact written.
+if node tests/restart-debate.test.js; then
+  echo "ok: restart-debate recorder matrix"
+else
+  note_fail "restart-debate recorder matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
