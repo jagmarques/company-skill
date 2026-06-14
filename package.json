@@ -22,6 +22,7 @@
     "scripts/check-contracts.js",
     "scripts/check-findings.js",
     "scripts/restart-debate.js",
+    "scripts/company-autoloop.js",
     "scripts/dashboard.js",
     "scripts/secret-scan.js",
     "scripts/reset-company-guard.js",

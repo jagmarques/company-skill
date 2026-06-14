@@ -276,6 +276,17 @@ else
   note_fail "dashboard D1/D4 tests failed"
 fi
 
+# 25. Autoloop supervisor: threshold-driven restart-via-resume test (under threshold
+#     resumes the same session, crossing threshold drives /company restart then a fresh
+#     session seeded from NEXT.md, no --continue, real-schema done, CANCEL, a hung
+#     over-threshold work turn that drives a restart instead of error-retrying, and the
+#     fill-ignoring + error-classify non-vacuity proofs).
+if node tests/autoloop.test.js; then
+  echo "ok: autoloop supervisor matrix"
+else
+  note_fail "autoloop supervisor matrix failed"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "CHECKS FAILED"
   exit 1
