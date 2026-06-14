@@ -1,6 +1,6 @@
 {
   "name": "company-skill",
-  "version": "4.6.6",
+  "version": "4.6.7",
   "description": "Goal-driven multi-employee company for Claude Code. Give it a goal, it runs until done.",
   "bin": {
     "company-skill": "./bin/install.js"
@@ -36,7 +36,22 @@
     "README.md",
     "LICENSE"
   ],
-  "keywords": ["claude-code", "skill", "multi-agent", "company", "orchestration", "model-agnostic", "autonomous-agents", "stop-hook", "agent-orchestration", "ai-agents", "fable", "claude-fable", "mythos", "claude-mythos"],
+  "keywords": [
+    "claude-code",
+    "skill",
+    "multi-agent",
+    "company",
+    "orchestration",
+    "model-agnostic",
+    "autonomous-agents",
+    "stop-hook",
+    "agent-orchestration",
+    "ai-agents",
+    "fable",
+    "claude-fable",
+    "mythos",
+    "claude-mythos"
+  ],
   "author": "jagmarques",
   "license": "MIT",
   "repository": {
