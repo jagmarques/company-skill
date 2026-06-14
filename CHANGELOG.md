@@ -2,6 +2,25 @@
 
 All notable changes to the /company skill are recorded here. Format follows Keep a Changelog, and the project uses semantic versioning. Versions before 4.6.0 are in the git history and the GitHub releases.
 
+## 4.6.7
+
+### Added
+- Unattended auto-restart loop: scripts/company-autoloop.js, a threshold-driven supervisor that runs
+  /company across sessions without a human. It monitors the work-session context fill and at the
+  threshold drives /company restart to emit a NEXT.md continuation, then launches a fresh session
+  seeded from it. A fully native restart is not possible (hooks cannot run /clear or reset context),
+  so the external supervisor is the driver. 13 non-vacuous tests cover fill-gating, restart
+  monitor-and-kill, the turn-timeout backstop, and the fresh-context handoff. README documents usage.
+
+### Fixed
+- Dashboard accuracy and polish (D1 to D6): context fill now includes output_tokens so it matches the
+  status line, the session model shows a friendly label like Opus 4.8 (1M context), collapsed
+  criteria rows truncate to one line, the cycles-and-memory stats show human counts instead of raw
+  bytes, the org tree layout no longer overlaps, the tree control uses an expand icon instead of the
+  word fullscreen, and the savings rows carry a visible approx label.
+- README: regenerated the dashboard screenshot from the clean post-fix dashboard with the bottom
+  whitespace cropped, and replaced the ASCII flow with a rendered Mermaid graph.
+
 ## 4.6.6
 
 ### Fixed
