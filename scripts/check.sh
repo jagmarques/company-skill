@@ -278,8 +278,9 @@ fi
 
 # 25. Autoloop supervisor: threshold-driven restart-via-resume test (under threshold
 #     resumes the same session, crossing threshold drives /company restart then a fresh
-#     session seeded from NEXT.md, no --continue, real-schema done, CANCEL, and the
-#     fill-ignoring non-vacuity proof that never restarts).
+#     session seeded from NEXT.md, no --continue, real-schema done, CANCEL, a hung
+#     over-threshold work turn that drives a restart instead of error-retrying, and the
+#     fill-ignoring + error-classify non-vacuity proofs).
 if node tests/autoloop.test.js; then
   echo "ok: autoloop supervisor matrix"
 else

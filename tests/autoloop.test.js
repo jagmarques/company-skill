@@ -734,6 +734,136 @@ check('NON-VACUITY: a runTurn WITHOUT the timeout-kill HANGS against a hung work
   );
 });
 
+// ---------- Case 12: a HUNG work turn OVER threshold drives a RESTART, not an error ----------
+// The real9 bug: a turn killed by the wall-clock backstop was classified as an ERROR
+// (error streak, resume the same session) instead of a normal turn end. The fix makes
+// runTurn flag the kill as timedOut, and the main loop routes a timed-out turn to the
+// SAME post-turn handling a natural exit gets: check done, compute fill, and if fill is
+// over threshold DRIVE /company restart. Here a SINGLE work turn writes a usage block
+// that puts fill at 0.60 (over the 0.50 threshold) then HANGS FOREVER. With a 3s
+// backstop the turn is killed. We assert the supervisor did NOT increment the error
+// streak, computed fill over threshold, DROVE /company restart, and then seeded a fresh
+// session from NEXT.md. I.e. a hung work turn leads to an auto-RESTART, not an error-retry.
+check('HUNG work turn over threshold drives a restart (no error streak, fresh session from NEXT.md)', function () {
+  let invFile;
+  try {
+    const r = runSupervisor({
+      mode: 'restart',
+      tokensByCall: [600],
+      maxTurns: 2,
+      turnTimeoutSecs: 3,
+      extraEnv: { __MOCK_WORK_HANGS: '1' },
+      timeout: 45000,
+    });
+    invFile = r.invFile;
+    if (r.timedOut) {
+      return 'supervisor TIMED OUT - the backstop never fired\nstderr: ' + r.stderr.slice(-600);
+    }
+    // A timed-out turn must NOT be counted as an error.
+    if (/error streak \d+\/\d+/.test(r.stderr)) {
+      return 'a timed-out work turn was counted toward the error streak (it must not be)\nstderr: ' +
+        r.stderr.slice(-700);
+    }
+    // The backstop must have fired and fill must have been computed over threshold.
+    if (r.stderr.indexOf('backstop') === -1) {
+      return 'no backstop log - the timeout path did not fire\nstderr: ' + r.stderr.slice(-600);
+    }
+    if (r.stderr.indexOf('fill >= threshold') === -1) {
+      return 'supervisor did not see fill over threshold after the hung turn\nstderr: ' +
+        r.stderr.slice(-700);
+    }
+    const invs = readInvocations(r.invFile);
+    // The supervisor must have DRIVEN /company restart on the work session.
+    const restartIdx = invs.findIndex(function (i) { return isRestartDrive(i.argv); });
+    if (restartIdx === -1) {
+      return 'supervisor never drove /company restart after the hung over-threshold turn\nstderr: ' +
+        r.stderr.slice(-700);
+    }
+    const workSession = sessionIdOf(invs[0].argv);
+    if (sessionIdOf(invs[restartIdx].argv) !== workSession) {
+      return 'restart drive ran on a different session than the hung work turn';
+    }
+    // After the restart there must be a NEW fresh session seeded from NEXT.md.
+    const after = invs.slice(restartIdx + 1).find(function (i) { return isFresh(i.argv); });
+    if (!after) return 'no fresh session launched after the restart drive';
+    if (lastArg(after.argv) !== NEXT_CONTENT) {
+      return 'post-restart prompt is not NEXT.md\n  got: ' + lastArg(after.argv);
+    }
+    if (sessionIdOf(after.argv) === workSession) {
+      return 'post-restart session id is NOT distinct from the hung work session';
+    }
+  } finally {
+    if (invFile) reapPids(invFile);
+  }
+});
+
+// ---------- Case 13: NON-VACUITY - error-classifying a timeout never restarts ----------
+// Build a mutant supervisor whose main loop DROPS the timedOut->fill routing, so a
+// timed-out turn falls into the error-streak path (resume the same session) just like
+// the pre-fix real9 behavior. Run it against the SAME hung-over-threshold mock as Case
+// 12. The mutant never reaches computeFill on the timed-out turn, so it NEVER drives
+// /company restart and NEVER seeds a fresh session. Case 12's restart assertion FAILS
+// against this mutant. That is the bar: the fix routes a timed-out turn to the fill path,
+// the mutant routes it to error-retry. We capture the failure verbatim as the proof.
+check('NON-VACUITY: a main loop that error-classifies a timeout never restarts a hung turn', function () {
+  const scratch = makeScratch();
+  const companyDir = path.join(scratch, '.company');
+  const projectsDir = path.join(scratch, 'projects');
+  const { mockPath, binDir, invFile } =
+    writeMockClaude(scratch, companyDir, projectsDir, 'restart', [600]);
+
+  // Mutate the real supervisor: disable the timedOut branch so a timed-out turn falls
+  // through to the `code !== 0` error-streak path (the pre-fix real9 misclassification).
+  const src = fs.readFileSync(SUPERVISOR, 'utf8');
+  const NEEDLE = 'if (turnResult.timedOut) {';
+  if (src.indexOf(NEEDLE) === -1) {
+    return 'could not find the timedOut branch to mutate (test needs updating)';
+  }
+  const mutated = src.replace(NEEDLE, 'if (false && turnResult.timedOut) {');
+  const mutantPath = path.join(scratch, 'supervisor-error-classify.js');
+  fs.writeFileSync(mutantPath, mutated);
+
+  let r;
+  try {
+    r = runSupervisor({
+      scratch: scratch,
+      companyDir: companyDir,
+      projectsDir: projectsDir,
+      supervisorPath: mutantPath,
+      mode: 'restart',
+      tokensByCall: [600],
+      maxTurns: 4,
+      turnTimeoutSecs: 3,
+      extraEnv: { __MOCK_WORK_HANGS: '1' },
+      timeout: 30000,
+    });
+  } finally {
+    reapPids(invFile);
+  }
+  if (r.timedOut) {
+    return 'mutant supervisor TIMED OUT (expected it to error-retry, not hang)\nstderr: ' +
+      r.stderr.slice(-600);
+  }
+  const invs = readInvocations(r.invFile);
+  const droveRestart = invs.some(function (i) { return isRestartDrive(i.argv); });
+  if (droveRestart) {
+    return 'the error-classifying mutant DROVE /company restart - it should have error-retried ' +
+      'the same session and never restarted (test would be vacuous)';
+  }
+  // It must have counted the timed-out turn as an error instead.
+  if (!/error streak \d+\/\d+/.test(r.stderr)) {
+    return 'the mutant did not error-classify the timed-out turn (no error streak logged)\nstderr: ' +
+      r.stderr.slice(-600);
+  }
+  process.stderr.write(
+    '[autoloop.test] NON-VACUITY: a main loop that error-classifies a timed-out work turn ' +
+    '(timedOut branch disabled, real9 behavior) NEVER drove /company restart against a hung ' +
+    'over-threshold mock - it counted the kill as an error and resumed the same session ' +
+    '(error streak logged). Case 12 (hung over-threshold turn DRIVES a restart) FAILS against ' +
+    'this mutant. Routing a timed-out turn to the fill->restart path is load-bearing.\n'
+  );
+});
+
 // ---------- summary ----------
 if (failures > 0) {
   console.log('AUTOLOOP TESTS FAILED: ' + failures + ' of ' + caseNo);

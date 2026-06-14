@@ -378,23 +378,30 @@ function spawnTurn(opts) {
 // ---------- run one work turn with a wall-clock backstop ----------
 // Awaits natural exit (the expected headless behavior). If the turn never exits
 // within turnTimeoutSecs (model looping on a blocked stop, or a sub-agent holding
-// a pipe open), kill its process group AND resolve a timed-out result here. The
-// resolve must NOT depend on handle.done firing: a hung child whose group kill is
-// still in flight could leave the loop awaiting forever. So the timer awaits
-// killChildGroup, then resolves itself; whichever of natural-exit / timeout-kill
-// wins first settles the promise and cancels the other. Clear the timer on exit.
+// a pipe open), kill its process group and resolve a timed-out result. Once the
+// timer fires we mark this run as timed-out FIRST, so whichever settle wins (the
+// group-kill resolver OR the child exit event that the kill triggers) reports
+// timedOut:true. Without that flag the kill makes the child exit, handle.done
+// resolves with a plain code=143 result, that settle wins the race, and the main
+// loop misclassifies a killed-on-timeout turn as an error (real9 evidence). So the
+// flag is the source of truth for the timeout, not whichever exit path lands first.
 function runTurn(opts) {
   const handle = spawnTurn(opts);
   return new Promise(function (resolve) {
     let settled = false;
+    let timedOut = false;
     function settle(res) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // The backstop owns the timeout classification: if the timer fired, this run
+      // is timed-out regardless of which exit path resolved it.
+      if (timedOut) res = Object.assign({}, res, { timedOut: true, killed: true });
       resolve(res);
     }
     const timer = setTimeout(function () {
       if (settled) return;
+      timedOut = true;
       log('WARN work turn exceeded ' + turnTimeoutSecs + 's wall clock - killing it');
       // Kill the detached process group (the work child AND its sub-agents), then
       // resolve a timed-out result so the main loop proceeds to the fill check on
