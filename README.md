@@ -33,12 +33,15 @@ Optionally define your team first in `COMPANY.md` (skip it and a minimal company
 
 Every criterion starts failing. Workers run in dependency waves under delegation contracts. At the end of each cycle, the Internal Reviewer re-runs every VERIFY-WITH command and the Devil's Advocate attacks everything marked passing. The stop guard physically blocks exit until every criterion has `passes: true` with reproduced evidence. Once done, `STATUS.md` and a `playbook.md` update are written for the next session.
 
-```
-GOAL -> THINK -> EXECUTE (parallel waves) -> VERIFY -> Done?
-                                                 |         |
-                                               COMPRESS  STATUS.md
-                                                 |
-                                               THINK (next cycle)
+```mermaid
+flowchart TD
+    GOAL --> THINK
+    THINK --> EXECUTE["EXECUTE (parallel waves)"]
+    EXECUTE --> VERIFY
+    VERIFY -->|all criteria pass| DONE["Done (STATUS.md + playbook)"]
+    VERIFY -->|not done| COMPRESS
+    COMPRESS --> NEXT["THINK (next cycle)"]
+    NEXT --> EXECUTE
 ```
 
 **Roles:** CEO orchestrator, Internal Reviewer, Devil's Advocate, Digest Writer. The orchestrator reads `COMPANY.md`, activates only the roles the goal needs, and writes delegation contracts in dependency order. Workers append FINDING + SOURCE lines to findings files. The Digest Writer compresses each finished cycle into the next cycle's briefing so the orchestrator never carries raw worker output in its own context.
@@ -63,6 +66,29 @@ What you see, panel by panel:
 **Criteria** - compact progress view with a click-to-expand toggle for the full pass/fail list and reproduced evidence.
 
 The dashboard binds 127.0.0.1 only, reads local files, and sends nothing anywhere. Override the port with `COMPANY_DASHBOARD_PORT`.
+
+
+## Unattended auto-restart loop
+
+`scripts/company-autoloop.js` runs `/company` unattended across many sessions. It restarts into a fresh context automatically when a work session approaches the context threshold, so a long goal keeps going without a human pasting the restart prompt each time.
+
+A script is needed because a fully unattended fresh-context restart cannot be done with Claude Code native features alone. Hooks cannot run `/clear` or start a fresh turn, a Stop-hook block keeps the same context, and auto-compaction only summarizes. The supervisor is the external driver that owns the restart decision. This is the validated finding.
+
+Each turn runs a headless `claude -p` session while the supervisor watches the session context fill. At the threshold it drives `/company restart` to emit the `NEXT.md` continuation, then launches a fresh session seeded from it.
+
+```bash
+node scripts/company-autoloop.js --max-turns 100 "/company GOAL: <your goal>"
+```
+
+Key flags and env:
+
+- `--project-dir <path>` the project the run targets (default: current dir)
+- `--company-dir <path>` override the `.company` dir (default: `<project-dir>/.company`)
+- `--max-turns <n>` hard cap on work turns across all sessions (default: 100)
+- `--restart-timeout-secs <n>` max wait for the restart markers (default: 420)
+- `COMPANY_CONTEXT_THRESHOLD` fill fraction or percent that triggers a restart (default: 0.50, set a low value for testing)
+
+It runs with `--permission-mode bypassPermissions` for the autonomy an unattended loop needs. The threshold is configurable, so you can drop it low to exercise the restart path during testing.
 
 
 ## Cost and quality
